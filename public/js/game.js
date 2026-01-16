@@ -121,29 +121,42 @@ class RingTossGame {
     }
 
     setupGameEventListeners() {
-        const canvas = this.app.canvas;
+        // Use the game container for events (more reliable on mobile)
+        const container = this.gameContainer;
 
         // Touch events
-        canvas.addEventListener('touchstart', (e) => {
+        container.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            this.onPointerDown(e.touches[0]);
+            e.stopPropagation();
+            if (e.touches.length > 0) {
+                this.onPointerDown(e.touches[0]);
+            }
         }, { passive: false });
 
-        canvas.addEventListener('touchmove', (e) => {
+        container.addEventListener('touchmove', (e) => {
             e.preventDefault();
-            this.onPointerMove(e.touches[0]);
+            e.stopPropagation();
+            if (e.touches.length > 0) {
+                this.onPointerMove(e.touches[0]);
+            }
         }, { passive: false });
 
-        canvas.addEventListener('touchend', (e) => {
+        container.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.onPointerUp();
+        }, { passive: false });
+
+        container.addEventListener('touchcancel', (e) => {
             e.preventDefault();
             this.onPointerUp();
         }, { passive: false });
 
-        // Mouse events
-        canvas.addEventListener('mousedown', (e) => this.onPointerDown(e));
-        canvas.addEventListener('mousemove', (e) => this.onPointerMove(e));
-        canvas.addEventListener('mouseup', () => this.onPointerUp());
-        canvas.addEventListener('mouseleave', () => this.onPointerUp());
+        // Mouse events (for desktop testing)
+        container.addEventListener('mousedown', (e) => this.onPointerDown(e));
+        container.addEventListener('mousemove', (e) => this.onPointerMove(e));
+        container.addEventListener('mouseup', () => this.onPointerUp());
+        container.addEventListener('mouseleave', () => this.onPointerUp());
     }
 
     createBackground() {
@@ -407,7 +420,7 @@ class RingTossGame {
     onPointerDown(e) {
         if (!this.isPlaying || this.isThrowing || this.hasThrown) return;
 
-        const rect = this.app.canvas.getBoundingClientRect();
+        const rect = this.gameContainer.getBoundingClientRect();
         this.dragStart = {
             x: e.clientX - rect.left,
             y: e.clientY - rect.top,
@@ -423,7 +436,7 @@ class RingTossGame {
     onPointerMove(e) {
         if (!this.isDragging) return;
 
-        const rect = this.app.canvas.getBoundingClientRect();
+        const rect = this.gameContainer.getBoundingClientRect();
         this.dragCurrent = {
             x: e.clientX - rect.left,
             y: e.clientY - rect.top
@@ -432,8 +445,10 @@ class RingTossGame {
         const dx = this.dragCurrent.x - this.dragStart.x;
         const dy = this.dragCurrent.y - this.dragStart.y;
 
-        this.ringState.x = dx * 0.3;
-        this.ringState.rotation = -dy * 0.01;
+        // Move ring horizontally based on drag
+        this.ringState.x = dx * 0.5;
+        // Tilt ring based on vertical drag
+        this.ringState.rotation = Math.max(-0.5, Math.min(0.5, -dy * 0.005));
         this.drawRing();
     }
 
