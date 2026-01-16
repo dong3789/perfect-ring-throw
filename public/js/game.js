@@ -16,15 +16,15 @@ class RingTossGame {
 
         // 3D World settings
         this.world = {
-            groundY: 0.7,
-            poleZ: 800,
-            cameraHeight: 200,
-            fov: 400
+            horizonY: 0.35,    // Vanishing point (horizon)
+            nearGroundY: 0.88, // Ground close to camera
+            poleZ: 500,        // Pole distance
+            fov: 300           // Field of view
         };
 
         // Ring properties
         this.ringState = {
-            x: 0, y: 0, z: 50,
+            x: 0, y: 30, z: 0,
             vx: 0, vy: 0, vz: 0,
             rotation: 0,
             rotationSpeed: 0,
@@ -34,9 +34,9 @@ class RingTossGame {
         // Pole properties
         this.poleState = {
             x: 0,
-            baseWidth: 20,
-            topWidth: 12,
-            height: 180
+            baseWidth: 15,
+            topWidth: 8,
+            height: 120
         };
 
         // Touch/drag state
@@ -171,31 +171,31 @@ class RingTossGame {
 
     drawGrid() {
         const { width, height } = this.app.screen;
-        const groundY = height * this.world.groundY;
-        const vanishY = height * 0.3;
+        const horizonY = height * this.world.horizonY;
+        const nearGroundY = height * this.world.nearGroundY;
         const numLines = 12;
 
         this.gridLines.clear();
 
-        // Perspective lines
+        // Perspective lines converging to horizon
         for (let i = 0; i <= numLines; i++) {
             const x = (i / numLines) * width;
             const alpha = 0.03 + Math.abs(i - numLines / 2) / numLines * 0.02;
 
-            this.gridLines.moveTo(x, groundY);
-            this.gridLines.lineTo(width / 2, vanishY);
+            this.gridLines.moveTo(x, nearGroundY);
+            this.gridLines.lineTo(width / 2, horizonY);
             this.gridLines.stroke({ width: 1, color: 0xa855f7, alpha: alpha });
         }
 
         // Horizontal depth lines
-        for (let i = 0; i < 8; i++) {
-            const t = i / 8;
-            const y = groundY - (groundY - vanishY) * t;
-            const spreadX = (1 - t * 0.7) * width / 2;
+        for (let i = 0; i < 10; i++) {
+            const t = i / 10;
+            const y = nearGroundY - (nearGroundY - horizonY) * t;
+            const spreadX = (1 - t * 0.8) * width / 2;
 
             this.gridLines.moveTo(width / 2 - spreadX, y);
             this.gridLines.lineTo(width / 2 + spreadX, y);
-            this.gridLines.stroke({ width: 1, color: 0xa855f7, alpha: 0.02 + t * 0.02 });
+            this.gridLines.stroke({ width: 1, color: 0xa855f7, alpha: 0.02 + t * 0.03 });
         }
     }
 
@@ -207,17 +207,17 @@ class RingTossGame {
 
     drawGround() {
         const { width, height } = this.app.screen;
-        const groundY = height * this.world.groundY;
+        const nearGroundY = height * this.world.nearGroundY;
 
         this.groundGraphics.clear();
 
-        // Ground plane
-        this.groundGraphics.rect(0, groundY, width, height - groundY);
+        // Ground plane below the near ground line
+        this.groundGraphics.rect(0, nearGroundY, width, height - nearGroundY);
         this.groundGraphics.fill({ color: 0x18181b, alpha: 0.8 });
 
-        // Ground line
-        this.groundGraphics.moveTo(0, groundY);
-        this.groundGraphics.lineTo(width, groundY);
+        // Ground line at near position
+        this.groundGraphics.moveTo(0, nearGroundY);
+        this.groundGraphics.lineTo(width, nearGroundY);
         this.groundGraphics.stroke({ width: 2, color: 0xa855f7, alpha: 0.3 });
     }
 
@@ -236,18 +236,19 @@ class RingTossGame {
 
     drawPole() {
         const { width, height } = this.app.screen;
-        const groundY = height * this.world.groundY;
 
-        const poleScreenPos = this.project3Dto2D(0, 0, this.world.poleZ);
-        const poleScale = poleScreenPos.scale;
+        // Project pole base position (at ground level y=0, at poleZ distance)
+        const poleBasePos = this.project3Dto2D(0, 0, this.world.poleZ);
+        // Project pole top position
+        const poleTopPos = this.project3Dto2D(0, this.poleState.height, this.world.poleZ);
 
-        const poleHeight = this.poleState.height * poleScale;
+        const poleScale = poleBasePos.scale;
         const baseWidth = this.poleState.baseWidth * poleScale;
         const topWidth = this.poleState.topWidth * poleScale;
 
-        const poleX = width / 2;
-        const poleBaseY = groundY - 20 * poleScale;
-        const poleTopY = poleBaseY - poleHeight;
+        const poleX = poleBasePos.x;
+        const poleBaseY = poleBasePos.y;
+        const poleTopY = poleTopPos.y;
 
         // Glow
         this.poleGlow.clear();
@@ -356,33 +357,44 @@ class RingTossGame {
 
     drawShadow() {
         const { width, height } = this.app.screen;
-        const groundY = height * this.world.groundY;
 
         this.shadowGraphics.clear();
 
         if (!this.isThrowing && !this.hasThrown) return;
 
+        // Project shadow at ground level (y=0) at ring's z position
         const shadowPos = this.project3Dto2D(this.ringState.x, 0, this.ringState.z);
         const shadowScale = shadowPos.scale;
-        const shadowRadius = 30 * shadowScale;
-        const shadowAlpha = Math.max(0, 0.3 - this.ringState.z / 2000);
+        const shadowRadius = 25 * shadowScale;
+        const shadowAlpha = Math.max(0, 0.4 - this.ringState.z / 1000);
 
-        this.shadowGraphics.ellipse(shadowPos.x, groundY - 10 * shadowScale, shadowRadius, shadowRadius * 0.3);
+        this.shadowGraphics.ellipse(shadowPos.x, shadowPos.y, shadowRadius, shadowRadius * 0.3);
         this.shadowGraphics.fill({ color: 0x000000, alpha: shadowAlpha });
     }
 
     project3Dto2D(x, y, z) {
         const { width, height } = this.app.screen;
-        const groundY = height * this.world.groundY;
+
+        const horizonY = height * this.world.horizonY;
+        const nearGroundY = height * this.world.nearGroundY;
+
+        // Perspective scale (1 at z=0, decreases as z increases)
         const scale = this.world.fov / (this.world.fov + z);
+
+        // X: centered, scaled by depth
         const screenX = width / 2 + x * scale;
-        const screenY = groundY - (y + this.world.cameraHeight) * scale;
+
+        // Y: interpolate from nearGround to horizon based on depth
+        // Close objects (high scale) are at bottom, far objects approach horizon
+        const groundAtDepth = horizonY + (nearGroundY - horizonY) * scale;
+        const screenY = groundAtDepth - y * scale;
+
         return { x: screenX, y: screenY, scale };
     }
 
     resetRing() {
         this.ringState = {
-            x: 0, y: 50, z: 50,
+            x: 0, y: 30, z: 0,
             vx: 0, vy: 0, vz: 0,
             rotation: 0, rotationSpeed: 0, scale: 1
         };
@@ -450,13 +462,19 @@ class RingTossGame {
         this.isThrowing = true;
         this.hasThrown = true;
 
-        const power = Math.min(Math.abs(dy) / dt * 10, 35);
-        const direction = dx / Math.abs(dy);
+        // Calculate throw power from swipe speed
+        const swipeSpeed = Math.abs(dy) / dt;
+        const power = Math.min(swipeSpeed * 8, 30);
+        const direction = dx / (Math.abs(dy) + 1);
 
-        this.ringState.vx = direction * power * 1.5;
-        this.ringState.vy = power * 0.6;
-        this.ringState.vz = power * 25;
-        this.ringState.rotationSpeed = power * 0.05;
+        // Horizontal movement based on swipe direction
+        this.ringState.vx = direction * power * 0.8;
+        // Arc upward
+        this.ringState.vy = power * 0.4;
+        // Forward velocity (towards pole)
+        this.ringState.vz = power * 18;
+        // Spin
+        this.ringState.rotationSpeed = power * 0.03;
 
         this.createThrowParticles();
     }
@@ -577,23 +595,27 @@ class RingTossGame {
 
     checkCollision() {
         const poleZ = this.world.poleZ;
-        const ringRadius = 35;
+        const ringInnerRadius = 20; // Inner radius of ring (hole size)
+        const poleRadius = this.poleState.topWidth / 2;
 
-        // Ring at pole depth
-        if (this.ringState.z >= poleZ - 50 && this.ringState.z <= poleZ + 50) {
-            const poleWidth = this.poleState.baseWidth / 2;
-
-            if (Math.abs(this.ringState.x) < ringRadius + poleWidth &&
-                this.ringState.y > 50 && this.ringState.y < 250) {
+        // Check if ring is near the pole's Z position
+        if (this.ringState.z >= poleZ - 40 && this.ringState.z <= poleZ + 40) {
+            // Check if ring hole aligns with pole (X close to center)
+            // and ring is at right height (above ground, below pole top)
+            if (Math.abs(this.ringState.x) < ringInnerRadius + poleRadius &&
+                this.ringState.y > 20 && this.ringState.y < this.poleState.height + 30) {
                 this.onSuccess();
                 return;
             }
         }
 
-        // Miss conditions
-        if (this.ringState.z > poleZ + 100 ||
-            this.ringState.y < -50 ||
-            Math.abs(this.ringState.x) > 500) {
+        // Miss conditions:
+        // - Ring passed the pole
+        // - Ring fell to ground
+        // - Ring went too far sideways
+        if (this.ringState.z > poleZ + 80 ||
+            this.ringState.y < -20 ||
+            Math.abs(this.ringState.x) > 300) {
             this.onMiss();
         }
     }
