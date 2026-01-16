@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Perfect Ring Toss</title>
+    <title>Ring Toss</title>
     <link rel="stylesheet" href="css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 </head>
 <body>
     <!-- 메인 메뉴 -->
@@ -13,7 +12,7 @@
         <div class="menu-container">
             <h1 class="game-title">
                 <span class="title-ring">Ring</span>
-                <span class="title-toss">Toss!</span>
+                <span class="title-toss">Toss</span>
             </h1>
             <div class="menu-deco">
                 <div class="floating-ring ring-1"></div>
@@ -21,21 +20,12 @@
                 <div class="floating-ring ring-3"></div>
             </div>
             <div class="best-score-display">
-                BEST: <span id="menu-best-score">0</span>
+                Best <span id="menu-best-score">0</span>
             </div>
             <div class="menu-buttons">
-                <button class="btn btn-solo" id="btn-solo">
-                    <span class="btn-icon">🎯</span>
-                    솔로 플레이
-                </button>
-                <button class="btn btn-online" id="btn-online">
-                    <span class="btn-icon">🌐</span>
-                    온라인 플레이
-                </button>
-                <button class="btn btn-leaderboard" id="btn-leaderboard">
-                    <span class="btn-icon">🏆</span>
-                    리더보드
-                </button>
+                <button class="btn btn-solo" id="btn-solo">Solo Play</button>
+                <button class="btn btn-online" id="btn-online">Online Play</button>
+                <button class="btn btn-leaderboard" id="btn-leaderboard">Leaderboard</button>
             </div>
         </div>
     </div>
@@ -45,39 +35,33 @@
         <div class="game-header">
             <div class="score-container">
                 <div class="current-score">
-                    <span class="score-label">SCORE</span>
+                    <span class="score-label">Score</span>
                     <span class="score-value" id="current-score">0</span>
                 </div>
                 <div class="best-score">
-                    <span class="score-label">BEST</span>
+                    <span class="score-label">Best</span>
                     <span class="score-value" id="best-score">0</span>
                 </div>
             </div>
         </div>
         <canvas id="game-canvas"></canvas>
-        <div class="game-hint" id="game-hint">드래그해서 던지세요!</div>
+        <div class="game-hint" id="game-hint">Drag to throw</div>
     </div>
 
     <!-- 게임 오버 화면 -->
     <div id="gameover-screen" class="screen overlay">
         <div class="gameover-container">
-            <h2 class="gameover-title">Game Over!</h2>
+            <h2 class="gameover-title">Game Over</h2>
             <div class="final-score">
-                <span class="final-score-label">YOUR SCORE</span>
+                <span class="final-score-label">Your Score</span>
                 <span class="final-score-value" id="final-score">0</span>
             </div>
             <div class="new-record" id="new-record" style="display: none;">
-                🎉 NEW RECORD! 🎉
+                New Record!
             </div>
             <div class="gameover-buttons">
-                <button class="btn btn-retry" id="btn-retry">
-                    <span class="btn-icon">🔄</span>
-                    다시 하기
-                </button>
-                <button class="btn btn-home" id="btn-home">
-                    <span class="btn-icon">🏠</span>
-                    메인으로
-                </button>
+                <button class="btn btn-retry" id="btn-retry">Try Again</button>
+                <button class="btn btn-home" id="btn-home">Home</button>
             </div>
         </div>
     </div>
@@ -85,14 +69,11 @@
     <!-- 온라인 닉네임 입력 -->
     <div id="nickname-screen" class="screen overlay">
         <div class="nickname-container">
-            <h2 class="nickname-title">닉네임을 입력하세요</h2>
-            <input type="text" id="nickname-input" class="nickname-input" placeholder="닉네임" maxlength="12">
+            <h2 class="nickname-title">Enter your nickname</h2>
+            <input type="text" id="nickname-input" class="nickname-input" placeholder="Nickname" maxlength="12">
             <div class="nickname-buttons">
-                <button class="btn btn-join" id="btn-join">
-                    <span class="btn-icon">✨</span>
-                    참가하기
-                </button>
-                <button class="btn btn-cancel" id="btn-cancel">취소</button>
+                <button class="btn btn-join" id="btn-join">Join</button>
+                <button class="btn btn-cancel" id="btn-cancel">Cancel</button>
             </div>
         </div>
     </div>
@@ -100,11 +81,11 @@
     <!-- 리더보드 -->
     <div id="leaderboard-screen" class="screen overlay">
         <div class="leaderboard-container">
-            <h2 class="leaderboard-title">🏆 LEADERBOARD 🏆</h2>
+            <h2 class="leaderboard-title">Leaderboard</h2>
             <div class="leaderboard-list" id="leaderboard-list">
                 <div class="leaderboard-loading">Loading...</div>
             </div>
-            <button class="btn btn-close" id="btn-close-leaderboard">닫기</button>
+            <button class="btn btn-close" id="btn-close-leaderboard">Close</button>
         </div>
     </div>
 

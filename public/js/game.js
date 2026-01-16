@@ -1,27 +1,46 @@
 // ========================================
-// Perfect Ring Toss - Game Engine
+// Perfect Ring Toss - 3D Perspective Engine
+// Front-to-back throwing view
 // ========================================
 
 // ========================================
 // Constants
 // ========================================
 const COLORS = {
-    ringColors: ['#FF6B9D', '#9B6BFF', '#6BC5FF', '#6BFFD4', '#FFE66B', '#FFB86B'],
-    bar: '#FFE66B',
-    barBase: '#FFB86B',
-    barHighlight: '#FFF8DC',
-    background: ['#1a1a2e', '#16213e', '#0f3460'],
-    stars: '#ffffff',
-    trail: 'rgba(255, 107, 157, 0.3)'
+    ring: '#6366f1',
+    ringLight: '#818cf8',
+    ringDark: '#4f46e5',
+    pole: '#d4a574',
+    poleLight: '#e8c9a0',
+    poleDark: '#b8956a',
+    ground: '#1a1a2e',
+    groundLight: '#252540'
 };
 
 const PHYSICS = {
-    gravity: 1200,
-    maxPower: 800,
-    powerMultiplier: 3,
-    rotationSpeed: 5,
-    airResistance: 0.99
+    gravity: 15,
+    throwPowerMultiplier: 0.8,
+    maxPower: 100,
+    airResistance: 0.995
 };
+
+// 3D Camera settings
+const CAMERA = {
+    fov: 400, // Field of view (perspective strength)
+    height: 50, // Camera height
+    distance: 200 // Camera distance from origin
+};
+
+// ========================================
+// Utility: 3D to 2D Projection
+// ========================================
+function project3Dto2D(x3d, y3d, z3d, canvas) {
+    // Perspective projection
+    const scale = CAMERA.fov / (CAMERA.fov + z3d);
+    const x2d = canvas.width / 2 + x3d * scale;
+    const y2d = canvas.height * 0.85 - y3d * scale + z3d * 0.3; // Higher z = higher on screen
+    return { x: x2d, y: y2d, scale };
+}
 
 // ========================================
 // Game State
@@ -39,7 +58,7 @@ class GameState {
         if (this.score > this.bestScore) {
             this.bestScore = this.score;
             localStorage.setItem('ringToss_bestScore', this.bestScore);
-            return true; // New record
+            return true;
         }
         return false;
     }
@@ -51,108 +70,120 @@ class GameState {
 }
 
 // ========================================
-// Bar Class
+// Pole (Target) Class - 3D
 // ========================================
-class Bar {
-    constructor(canvas) {
-        this.canvas = canvas;
-        this.update();
+class Pole {
+    constructor() {
+        // 3D position (center of play area, far away)
+        this.x = 0;
+        this.y = 0; // Ground level
+        this.z = 350; // Distance from camera
+        this.height = 120;
+        this.radius = 8;
     }
 
-    update() {
-        // Position bar at right side of canvas
-        this.x = this.canvas.width * 0.75;
-        this.topY = this.canvas.height * 0.25;
-        this.height = this.canvas.height * 0.45;
-        this.width = 12;
-        this.baseWidth = 80;
-        this.baseHeight = 20;
-    }
+    draw(ctx, canvas) {
+        const base = project3Dto2D(this.x, this.y, this.z, canvas);
+        const top = project3Dto2D(this.x, this.height, this.z, canvas);
 
-    draw(ctx) {
-        // Bar shadow
+        // Pole shadow on ground
+        ctx.beginPath();
+        ctx.ellipse(base.x + 10, base.y + 5, 25 * base.scale, 8 * base.scale, 0, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.fillRect(this.x - this.width / 2 + 4, this.topY + 4, this.width, this.height);
-
-        // Main bar
-        const gradient = ctx.createLinearGradient(this.x - this.width / 2, 0, this.x + this.width / 2, 0);
-        gradient.addColorStop(0, '#DDA15E');
-        gradient.addColorStop(0.5, COLORS.bar);
-        gradient.addColorStop(1, '#DDA15E');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(this.x - this.width / 2, this.topY, this.width, this.height);
-
-        // Bar highlight
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-        ctx.fillRect(this.x - this.width / 2 + 2, this.topY, 3, this.height);
-
-        // Bar top cap (rounded)
-        ctx.beginPath();
-        ctx.arc(this.x, this.topY, this.width / 2, 0, Math.PI * 2);
-        ctx.fillStyle = COLORS.bar;
         ctx.fill();
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+
+        // Pole body
+        const poleWidth = this.radius * 2 * base.scale;
+        const gradient = ctx.createLinearGradient(
+            base.x - poleWidth / 2, 0,
+            base.x + poleWidth / 2, 0
+        );
+        gradient.addColorStop(0, COLORS.poleDark);
+        gradient.addColorStop(0.3, COLORS.poleLight);
+        gradient.addColorStop(0.7, COLORS.pole);
+        gradient.addColorStop(1, COLORS.poleDark);
+
         ctx.beginPath();
-        ctx.arc(this.x - 2, this.topY - 2, this.width / 4, 0, Math.PI * 2);
+        ctx.moveTo(base.x - poleWidth / 2, base.y);
+        ctx.lineTo(top.x - poleWidth / 2 * 0.7, top.y);
+        ctx.lineTo(top.x + poleWidth / 2 * 0.7, top.y);
+        ctx.lineTo(base.x + poleWidth / 2, base.y);
+        ctx.closePath();
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        // Pole top cap
+        ctx.beginPath();
+        ctx.arc(top.x, top.y, poleWidth / 2 * 0.8, 0, Math.PI * 2);
+        ctx.fillStyle = COLORS.poleLight;
         ctx.fill();
 
         // Base
-        const baseY = this.topY + this.height;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.fillRect(this.x - this.baseWidth / 2 + 4, baseY + 4, this.baseWidth, this.baseHeight);
-
-        const baseGradient = ctx.createLinearGradient(0, baseY, 0, baseY + this.baseHeight);
-        baseGradient.addColorStop(0, COLORS.barBase);
-        baseGradient.addColorStop(1, '#CC8844');
-        ctx.fillStyle = baseGradient;
         ctx.beginPath();
-        ctx.roundRect(this.x - this.baseWidth / 2, baseY, this.baseWidth, this.baseHeight, 5);
+        ctx.ellipse(base.x, base.y, 30 * base.scale, 10 * base.scale, 0, 0, Math.PI * 2);
+        ctx.fillStyle = COLORS.poleDark;
         ctx.fill();
-
-        // Base highlight
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
         ctx.beginPath();
-        ctx.roundRect(this.x - this.baseWidth / 2 + 5, baseY + 3, this.baseWidth - 10, 5, 2);
+        ctx.ellipse(base.x, base.y - 3, 30 * base.scale, 10 * base.scale, 0, 0, Math.PI * 2);
+        ctx.fillStyle = COLORS.pole;
         ctx.fill();
     }
 
     getHitZone() {
         return {
             x: this.x,
-            topY: this.topY,
-            bottomY: this.topY + this.height,
-            width: this.width
+            z: this.z,
+            radius: this.radius * 1.5, // Hit detection radius
+            minY: 20,
+            maxY: this.height - 10
         };
     }
 }
 
 // ========================================
-// Ring Class
+// Ring Class - 3D
 // ========================================
 class Ring {
     constructor(canvas) {
         this.canvas = canvas;
         this.reset();
-        this.color = COLORS.ringColors[Math.floor(Math.random() * COLORS.ringColors.length)];
-        this.trail = [];
     }
 
     reset() {
-        this.x = this.canvas.width * 0.15;
-        this.y = this.canvas.height * 0.75;
+        // Starting position (near camera, centered)
+        this.x = 0;
+        this.y = 30; // Slightly above ground
+        this.z = 50; // Near camera
+
+        // Velocity
         this.vx = 0;
         this.vy = 0;
+        this.vz = 0;
+
+        // Ring properties
+        this.outerRadius = 25;
+        this.innerRadius = 15;
+        this.tilt = 0.3; // Ring tilt angle (radians) - tilted toward camera
         this.rotation = 0;
-        this.outerRadius = 30;
-        this.innerRadius = 18;
+
         this.state = 'ready'; // ready, aiming, flying, success, fail
         this.trail = [];
-        this.color = COLORS.ringColors[Math.floor(Math.random() * COLORS.ringColors.length)];
+
+        // Landing state
+        this.onPole = false;
+        this.settleY = 0;
     }
 
-    launch(angle, power) {
-        this.vx = Math.cos(angle) * power;
-        this.vy = Math.sin(angle) * power;
+    launch(power, angle) {
+        // angle: horizontal angle (-1 to 1, left to right)
+        // power: throw strength (0 to 1)
+
+        const throwPower = power * PHYSICS.maxPower * PHYSICS.throwPowerMultiplier;
+
+        this.vx = angle * throwPower * 0.3; // Slight horizontal
+        this.vy = throwPower * 0.5; // Upward arc
+        this.vz = throwPower * 0.9; // Forward (into screen)
+
         this.state = 'flying';
     }
 
@@ -160,128 +191,127 @@ class Ring {
         if (this.state !== 'flying') return;
 
         // Save trail
-        this.trail.push({ x: this.x, y: this.y, alpha: 1 });
-        if (this.trail.length > 20) this.trail.shift();
+        if (this.z < 400) {
+            this.trail.push({ x: this.x, y: this.y, z: this.z, alpha: 1 });
+            if (this.trail.length > 15) this.trail.shift();
+        }
 
         // Update trail alpha
         this.trail.forEach((t, i) => {
-            t.alpha = i / this.trail.length * 0.5;
+            t.alpha = (i / this.trail.length) * 0.4;
         });
 
         // Apply physics
         this.x += this.vx * dt;
         this.y += this.vy * dt;
-        this.vy += PHYSICS.gravity * dt;
-        this.vx *= PHYSICS.airResistance;
-        this.rotation += PHYSICS.rotationSpeed * dt;
+        this.z += this.vz * dt;
 
-        // Check bounds
-        if (this.y > this.canvas.height + 100 ||
-            this.x > this.canvas.width + 100 ||
-            this.x < -100) {
+        // Gravity (pulls down on Y)
+        this.vy -= PHYSICS.gravity * dt;
+
+        // Air resistance
+        this.vx *= PHYSICS.airResistance;
+        this.vy *= PHYSICS.airResistance;
+        this.vz *= PHYSICS.airResistance;
+
+        // Ring rotation during flight
+        this.rotation += 3 * dt;
+        this.tilt = Math.max(0.1, this.tilt - 0.5 * dt); // Flatten as it flies
+
+        // Check if ring went past target or fell
+        if (this.z > 500 || this.y < -50) {
             this.state = 'fail';
         }
     }
 
-    draw(ctx) {
+    draw(ctx, canvas) {
         // Draw trail
         this.trail.forEach(t => {
-            ctx.beginPath();
-            ctx.arc(t.x, t.y, this.outerRadius * 0.5, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(255, 107, 157, ${t.alpha})`;
-            ctx.fill();
+            const proj = project3Dto2D(t.x, t.y, t.z, canvas);
+            if (proj.scale > 0.1) {
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, 8 * proj.scale, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(99, 102, 241, ${t.alpha})`;
+                ctx.fill();
+            }
         });
 
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.rotate(this.rotation);
+        const proj = project3Dto2D(this.x, this.y, this.z, canvas);
+        if (proj.scale < 0.05) return;
 
-        // Ring shadow
+        const scale = proj.scale;
+        const outerR = this.outerRadius * scale;
+        const innerR = this.innerRadius * scale;
+
+        ctx.save();
+        ctx.translate(proj.x, proj.y);
+
+        // Ring tilt effect (ellipse instead of circle)
+        const tiltFactor = Math.cos(this.tilt);
+
+        // Shadow
         ctx.beginPath();
-        ctx.arc(3, 3, this.outerRadius, 0, Math.PI * 2);
+        ctx.ellipse(3, 3, outerR, outerR * tiltFactor, 0, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
         ctx.fill();
 
         // Ring outer
         ctx.beginPath();
-        ctx.arc(0, 0, this.outerRadius, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, outerR, outerR * tiltFactor, 0, 0, Math.PI * 2);
         const gradient = ctx.createRadialGradient(
-            -this.outerRadius * 0.3, -this.outerRadius * 0.3, 0,
-            0, 0, this.outerRadius
+            -outerR * 0.3, -outerR * 0.3 * tiltFactor, 0,
+            0, 0, outerR
         );
-        gradient.addColorStop(0, this.lightenColor(this.color, 30));
-        gradient.addColorStop(0.7, this.color);
-        gradient.addColorStop(1, this.darkenColor(this.color, 20));
+        gradient.addColorStop(0, COLORS.ringLight);
+        gradient.addColorStop(0.6, COLORS.ring);
+        gradient.addColorStop(1, COLORS.ringDark);
         ctx.fillStyle = gradient;
         ctx.fill();
 
-        // Ring inner (hole)
+        // Ring hole (inner)
         ctx.beginPath();
-        ctx.arc(0, 0, this.innerRadius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(15, 52, 96, 0.9)';
+        ctx.ellipse(0, 0, innerR, innerR * tiltFactor, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(12, 12, 20, 0.9)';
         ctx.fill();
-
-        // Inner shadow
-        ctx.beginPath();
-        ctx.arc(0, 0, this.innerRadius, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.lineWidth = 3;
-        ctx.stroke();
 
         // Highlight
         ctx.beginPath();
-        ctx.arc(-this.outerRadius * 0.4, -this.outerRadius * 0.4, this.outerRadius * 0.2, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.ellipse(-outerR * 0.35, -outerR * 0.35 * tiltFactor, outerR * 0.15, outerR * 0.1 * tiltFactor, -0.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.fill();
 
         ctx.restore();
     }
 
-    lightenColor(color, percent) {
-        const num = parseInt(color.replace('#', ''), 16);
-        const amt = Math.round(2.55 * percent);
-        const R = Math.min(255, (num >> 16) + amt);
-        const G = Math.min(255, ((num >> 8) & 0x00FF) + amt);
-        const B = Math.min(255, (num & 0x0000FF) + amt);
-        return `rgb(${R}, ${G}, ${B})`;
-    }
-
-    darkenColor(color, percent) {
-        const num = parseInt(color.replace('#', ''), 16);
-        const amt = Math.round(2.55 * percent);
-        const R = Math.max(0, (num >> 16) - amt);
-        const G = Math.max(0, ((num >> 8) & 0x00FF) - amt);
-        const B = Math.max(0, (num & 0x0000FF) - amt);
-        return `rgb(${R}, ${G}, ${B})`;
-    }
-
-    checkCollision(bar) {
+    checkCollision(pole) {
         if (this.state !== 'flying') return null;
 
-        const hitZone = bar.getHitZone();
+        const hitZone = pole.getHitZone();
 
-        // Check if ring center passed the bar horizontally
-        if (this.x >= hitZone.x - this.innerRadius &&
-            this.x <= hitZone.x + this.innerRadius) {
+        // Check if ring is near the pole in Z
+        const zDiff = Math.abs(this.z - hitZone.z);
+        if (zDiff > 30) return null; // Too far in Z
 
-            // Check if ring is at correct height and moving down
-            if (this.y >= hitZone.topY &&
-                this.y <= hitZone.bottomY &&
-                this.vy > 0) {
+        // Check if ring center is close to pole center in X
+        const xDiff = Math.abs(this.x - hitZone.x);
 
-                // Success! Ring caught on bar
-                this.state = 'success';
-                return 'success';
-            }
+        // Check Y is in valid range (ring should be above base, below top)
+        const inYRange = this.y > hitZone.minY && this.y < hitZone.maxY;
+
+        // Success: ring hole passes over the pole
+        if (xDiff < this.innerRadius && inYRange && this.vz > 0) {
+            // Ring caught!
+            this.state = 'success';
+            this.settleY = this.y;
+            return 'success';
         }
 
-        // Check if ring passed the bar completely (missed)
-        if (this.x > hitZone.x + this.outerRadius && this.state === 'flying') {
-            // Check if it was at the right height but missed the hole
-            if (this.y >= hitZone.topY - this.outerRadius &&
-                this.y <= hitZone.bottomY + this.outerRadius) {
-                // Hit the bar (not through the hole)
-                // Let physics continue
+        // Miss: ring hit the pole but didn't go through
+        if (xDiff < this.outerRadius + hitZone.radius && zDiff < 20) {
+            // Bounced off
+            if (Math.abs(this.x - hitZone.x) > this.innerRadius) {
+                this.vz = -this.vz * 0.3;
+                this.vx += (this.x > hitZone.x ? 1 : -1) * 20;
             }
         }
 
@@ -297,16 +327,18 @@ class ParticleSystem {
         this.particles = [];
     }
 
-    emit(x, y, count, color) {
+    emit(x, y, z, count, canvas) {
         for (let i = 0; i < count; i++) {
+            const proj = project3Dto2D(x, y, z, canvas);
             this.particles.push({
-                x, y,
-                vx: (Math.random() - 0.5) * 400,
-                vy: (Math.random() - 0.5) * 400 - 200,
-                radius: Math.random() * 8 + 4,
-                color: color || COLORS.ringColors[Math.floor(Math.random() * COLORS.ringColors.length)],
+                x: proj.x,
+                y: proj.y,
+                vx: (Math.random() - 0.5) * 200,
+                vy: (Math.random() - 0.5) * 200 - 100,
+                radius: Math.random() * 4 + 2,
+                color: Math.random() > 0.5 ? COLORS.ring : COLORS.ringLight,
                 life: 1,
-                decay: Math.random() * 0.02 + 0.02
+                decay: Math.random() * 0.02 + 0.015
             });
         }
     }
@@ -315,7 +347,7 @@ class ParticleSystem {
         this.particles = this.particles.filter(p => {
             p.x += p.vx * dt;
             p.y += p.vy * dt;
-            p.vy += 500 * dt;
+            p.vy += 300 * dt;
             p.life -= p.decay;
             return p.life > 0;
         });
@@ -334,46 +366,113 @@ class ParticleSystem {
 }
 
 // ========================================
-// Background Stars
+// Ground Plane
 // ========================================
-class StarField {
-    constructor(canvas) {
-        this.canvas = canvas;
-        this.stars = [];
-        this.init();
+function drawGround(ctx, canvas) {
+    // Gradient ground
+    const gradient = ctx.createLinearGradient(0, canvas.height * 0.5, 0, canvas.height);
+    gradient.addColorStop(0, '#1e1e2e');
+    gradient.addColorStop(1, '#0f0f1a');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, canvas.height * 0.5, canvas.width, canvas.height * 0.5);
+
+    // Grid lines for depth perception
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+    ctx.lineWidth = 1;
+
+    // Horizontal lines (getting closer together as they go back)
+    for (let i = 0; i < 20; i++) {
+        const z = 50 + i * 30;
+        const proj = project3Dto2D(0, 0, z, canvas);
+        const y = proj.y;
+        if (y < canvas.height * 0.5) continue;
+
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
     }
 
-    init() {
-        this.stars = [];
-        for (let i = 0; i < 100; i++) {
-            this.stars.push({
-                x: Math.random() * this.canvas.width,
-                y: Math.random() * this.canvas.height * 0.7,
-                radius: Math.random() * 2 + 0.5,
-                twinkle: Math.random() * Math.PI * 2,
-                speed: Math.random() * 2 + 1
-            });
-        }
-    }
+    // Vertical lines (converging to center)
+    for (let i = -5; i <= 5; i++) {
+        const nearProj = project3Dto2D(i * 80, 0, 50, canvas);
+        const farProj = project3Dto2D(i * 80, 0, 500, canvas);
 
-    update(dt) {
-        this.stars.forEach(s => {
-            s.twinkle += s.speed * dt;
-        });
+        ctx.beginPath();
+        ctx.moveTo(nearProj.x, nearProj.y);
+        ctx.lineTo(farProj.x, farProj.y);
+        ctx.stroke();
     }
+}
 
-    draw(ctx) {
-        this.stars.forEach(s => {
-            const alpha = 0.3 + Math.sin(s.twinkle) * 0.3;
+// ========================================
+// Aiming Guide
+// ========================================
+function drawAimingGuide(ctx, canvas, startPos, currentPos, ring) {
+    if (!startPos || !currentPos) return;
+
+    const dx = startPos.x - currentPos.x;
+    const dy = startPos.y - currentPos.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const power = Math.min(distance / 150, 1);
+    const angle = dx / 200; // Horizontal angle
+
+    // Power bar
+    const barWidth = 120;
+    const barHeight = 8;
+    const barX = canvas.width / 2 - barWidth / 2;
+    const barY = canvas.height - 60;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barWidth, barHeight, 4);
+    ctx.fill();
+
+    const powerColor = power < 0.5 ? '#10b981' : power < 0.8 ? '#f59e0b' : '#ef4444';
+    ctx.fillStyle = powerColor;
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barWidth * power, barHeight, 4);
+    ctx.fill();
+
+    // Direction indicator
+    const proj = project3Dto2D(ring.x, ring.y, ring.z, canvas);
+    const indicatorLength = 60 * power;
+
+    ctx.beginPath();
+    ctx.moveTo(proj.x, proj.y);
+    ctx.lineTo(proj.x - angle * indicatorLength, proj.y - indicatorLength);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Arrow head
+    ctx.beginPath();
+    ctx.arc(proj.x - angle * indicatorLength, proj.y - indicatorLength, 6, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.fill();
+
+    // Trajectory preview (dots)
+    ctx.fillStyle = 'rgba(99, 102, 241, 0.3)';
+    let px = ring.x, py = ring.y, pz = ring.z;
+    let pvx = angle * power * PHYSICS.maxPower * 0.3 * PHYSICS.throwPowerMultiplier;
+    let pvy = power * PHYSICS.maxPower * 0.5 * PHYSICS.throwPowerMultiplier;
+    let pvz = power * PHYSICS.maxPower * 0.9 * PHYSICS.throwPowerMultiplier;
+
+    for (let t = 0; t < 30; t++) {
+        px += pvx * 0.016;
+        py += pvy * 0.016;
+        pz += pvz * 0.016;
+        pvy -= PHYSICS.gravity * 0.016;
+
+        if (pz > 400 || py < 0) break;
+
+        const dotProj = project3Dto2D(px, py, pz, canvas);
+        if (dotProj.scale > 0.1) {
             ctx.beginPath();
-            ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.arc(dotProj.x, dotProj.y, 3 * dotProj.scale, 0, Math.PI * 2);
             ctx.fill();
-        });
-    }
-
-    resize() {
-        this.init();
+        }
     }
 }
 
@@ -386,17 +485,15 @@ class Game {
         this.ctx = this.canvas.getContext('2d');
 
         this.state = new GameState();
-        this.bar = null;
+        this.pole = new Pole();
         this.ring = null;
         this.particles = new ParticleSystem();
-        this.stars = null;
 
         this.dragStart = null;
-        this.dragEnd = null;
+        this.dragCurrent = null;
         this.isDragging = false;
 
         this.lastTime = 0;
-        this.successCount = 0;
 
         this.init();
     }
@@ -412,11 +509,9 @@ class Game {
         const resize = () => {
             const container = this.canvas.parentElement;
             this.canvas.width = container.clientWidth;
-            this.canvas.height = container.clientHeight - 80; // Account for header
+            this.canvas.height = container.clientHeight - 80;
 
-            this.bar = new Bar(this.canvas);
             this.ring = new Ring(this.canvas);
-            this.stars = new StarField(this.canvas);
         };
 
         resize();
@@ -455,7 +550,7 @@ class Game {
 
     getPointerPos(e) {
         const rect = this.canvas.getBoundingClientRect();
-        if (e.touches) {
+        if (e.touches && e.touches.length > 0) {
             return {
                 x: e.touches[0].clientX - rect.left,
                 y: e.touches[0].clientY - rect.top
@@ -473,7 +568,7 @@ class Game {
 
         this.isDragging = true;
         this.dragStart = this.getPointerPos(e);
-        this.dragEnd = this.dragStart;
+        this.dragCurrent = this.dragStart;
         this.ring.state = 'aiming';
 
         document.getElementById('game-hint').style.display = 'none';
@@ -483,7 +578,7 @@ class Game {
         if (!this.isDragging) return;
         e.preventDefault();
 
-        this.dragEnd = this.getPointerPos(e);
+        this.dragCurrent = this.getPointerPos(e);
     }
 
     onDragEnd(e) {
@@ -493,29 +588,27 @@ class Game {
         this.isDragging = false;
 
         if (this.ring.state === 'aiming') {
-            const dx = this.dragStart.x - this.dragEnd.x;
-            const dy = this.dragStart.y - this.dragEnd.y;
+            const dx = this.dragStart.x - this.dragCurrent.x;
+            const dy = this.dragStart.y - this.dragCurrent.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             if (distance > 20) {
-                const angle = Math.atan2(dy, dx);
-                const power = Math.min(distance * PHYSICS.powerMultiplier, PHYSICS.maxPower);
-                this.ring.launch(angle, power);
+                const power = Math.min(distance / 150, 1);
+                const angle = dx / 200;
+                this.ring.launch(power, angle);
             } else {
                 this.ring.state = 'ready';
             }
         }
 
         this.dragStart = null;
-        this.dragEnd = null;
+        this.dragCurrent = null;
     }
 
     startGame(mode) {
         this.state.reset();
         this.state.isPlaying = true;
         this.ring.reset();
-        this.bar.update();
-        this.successCount = 0;
         this.showScreen('game');
         this.updateUI();
         document.getElementById('game-hint').style.display = 'block';
@@ -529,7 +622,6 @@ class Game {
 
     showLeaderboard() {
         this.showScreen('leaderboard');
-        // TODO: Fetch from server
         const list = document.getElementById('leaderboard-list');
         list.innerHTML = `
             <div class="leaderboard-item top-1">
@@ -549,12 +641,12 @@ class Game {
             </div>
             <div class="leaderboard-item">
                 <span class="leaderboard-rank">4</span>
-                <span class="leaderboard-name">CandyLover</span>
+                <span class="leaderboard-name">TossKing</span>
                 <span class="leaderboard-score">65</span>
             </div>
             <div class="leaderboard-item">
                 <span class="leaderboard-rank">5</span>
-                <span class="leaderboard-name">GamerX</span>
+                <span class="leaderboard-name">Gamer99</span>
                 <span class="leaderboard-score">54</span>
             </div>
         `;
@@ -566,8 +658,7 @@ class Game {
             document.getElementById('nickname-input').focus();
             return;
         }
-        // TODO: Connect to server
-        alert('온라인 모드는 곧 지원됩니다!');
+        alert('Online mode coming soon!');
         this.showScreen('menu');
     }
 
@@ -577,25 +668,23 @@ class Game {
 
         document.getElementById('final-score').textContent = this.state.score;
         document.getElementById('new-record').style.display = isNewRecord ? 'block' : 'none';
-
-        // Update best score display
         document.getElementById('menu-best-score').textContent = this.state.bestScore;
 
         this.showScreen('gameover');
     }
 
     onSuccess() {
-        const isNewRecord = this.state.addScore();
+        this.state.addScore();
         this.updateUI();
 
         // Celebration particles
-        this.particles.emit(this.ring.x, this.ring.y, 30, this.ring.color);
+        this.particles.emit(this.ring.x, this.ring.y, this.ring.z, 25, this.canvas);
 
         // Reset ring for next throw
         setTimeout(() => {
             this.ring.reset();
             document.getElementById('game-hint').style.display = 'block';
-        }, 500);
+        }, 800);
     }
 
     updateUI() {
@@ -607,111 +696,43 @@ class Game {
     update(dt) {
         if (!this.state.isPlaying) return;
 
-        this.stars.update(dt);
         this.ring.update(dt);
         this.particles.update(dt);
 
         // Check collision
-        const result = this.ring.checkCollision(this.bar);
+        const result = this.ring.checkCollision(this.pole);
         if (result === 'success') {
             this.onSuccess();
         } else if (this.ring.state === 'fail') {
-            this.particles.emit(this.ring.x, this.ring.y, 20);
-            setTimeout(() => this.gameOver(), 500);
+            this.particles.emit(this.ring.x, this.ring.y, this.ring.z, 15, this.canvas);
+            setTimeout(() => this.gameOver(), 600);
         }
     }
 
     draw() {
         const ctx = this.ctx;
+        const canvas = this.canvas;
 
-        // Clear and draw background
-        const bgGradient = ctx.createLinearGradient(0, 0, 0, this.canvas.height);
-        bgGradient.addColorStop(0, COLORS.background[0]);
-        bgGradient.addColorStop(0.5, COLORS.background[1]);
-        bgGradient.addColorStop(1, COLORS.background[2]);
-        ctx.fillStyle = bgGradient;
-        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        // Clear
+        ctx.fillStyle = '#0c0c14';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Draw stars
-        if (this.stars) this.stars.draw(ctx);
+        // Draw ground with perspective grid
+        drawGround(ctx, canvas);
 
-        // Draw ground glow
-        const groundGlow = ctx.createRadialGradient(
-            this.canvas.width / 2, this.canvas.height, 0,
-            this.canvas.width / 2, this.canvas.height, this.canvas.height * 0.5
-        );
-        groundGlow.addColorStop(0, 'rgba(155, 107, 255, 0.2)');
-        groundGlow.addColorStop(1, 'transparent');
-        ctx.fillStyle = groundGlow;
-        ctx.fillRect(0, this.canvas.height * 0.5, this.canvas.width, this.canvas.height * 0.5);
-
-        // Draw bar
-        if (this.bar) this.bar.draw(ctx);
+        // Draw pole
+        this.pole.draw(ctx, canvas);
 
         // Draw ring
-        if (this.ring) this.ring.draw(ctx);
+        if (this.ring) this.ring.draw(ctx, canvas);
 
-        // Draw aiming line
-        if (this.isDragging && this.dragStart && this.dragEnd) {
-            this.drawAimingLine(ctx);
+        // Draw aiming guide
+        if (this.isDragging && this.ring.state === 'aiming') {
+            drawAimingGuide(ctx, canvas, this.dragStart, this.dragCurrent, this.ring);
         }
 
         // Draw particles
         this.particles.draw(ctx);
-    }
-
-    drawAimingLine(ctx) {
-        const dx = this.dragStart.x - this.dragEnd.x;
-        const dy = this.dragStart.y - this.dragEnd.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const power = Math.min(distance * PHYSICS.powerMultiplier, PHYSICS.maxPower);
-        const angle = Math.atan2(dy, dx);
-
-        // Draw power indicator
-        const powerRatio = power / PHYSICS.maxPower;
-        const lineLength = powerRatio * 150;
-
-        ctx.beginPath();
-        ctx.moveTo(this.ring.x, this.ring.y);
-        ctx.lineTo(
-            this.ring.x + Math.cos(angle) * lineLength,
-            this.ring.y + Math.sin(angle) * lineLength
-        );
-        ctx.strokeStyle = `rgba(255, 255, 255, 0.8)`;
-        ctx.lineWidth = 4;
-        ctx.lineCap = 'round';
-        ctx.stroke();
-
-        // Draw trajectory preview (dotted line)
-        ctx.setLineDash([5, 10]);
-        ctx.beginPath();
-
-        let px = this.ring.x;
-        let py = this.ring.y;
-        let pvx = Math.cos(angle) * power;
-        let pvy = Math.sin(angle) * power;
-
-        ctx.moveTo(px, py);
-
-        for (let t = 0; t < 50; t++) {
-            px += pvx * 0.02;
-            py += pvy * 0.02;
-            pvy += PHYSICS.gravity * 0.02;
-
-            if (py > this.canvas.height || px > this.canvas.width) break;
-            ctx.lineTo(px, py);
-        }
-
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Draw power circle
-        ctx.beginPath();
-        ctx.arc(this.dragEnd.x, this.dragEnd.y, 15, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 107, 157, ${0.5 + powerRatio * 0.5})`;
-        ctx.fill();
     }
 
     gameLoop(timestamp) {
@@ -728,7 +749,7 @@ class Game {
 }
 
 // ========================================
-// Initialize Game
+// Initialize
 // ========================================
 window.addEventListener('DOMContentLoaded', () => {
     new Game();
