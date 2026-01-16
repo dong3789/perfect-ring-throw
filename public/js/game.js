@@ -1,756 +1,852 @@
-// ========================================
-// Perfect Ring Toss - 3D Perspective Engine
-// Front-to-back throwing view
-// ========================================
+// Perfect Ring Toss - PixiJS Game Engine
+// 3D Perspective Ring Throwing with Visual Effects
 
-// ========================================
-// Constants
-// ========================================
-const COLORS = {
-    ring: '#6366f1',
-    ringLight: '#818cf8',
-    ringDark: '#4f46e5',
-    pole: '#d4a574',
-    poleLight: '#e8c9a0',
-    poleDark: '#b8956a',
-    ground: '#1a1a2e',
-    groundLight: '#252540'
-};
-
-const PHYSICS = {
-    gravity: 15,
-    throwPowerMultiplier: 0.8,
-    maxPower: 100,
-    airResistance: 0.995
-};
-
-// 3D Camera settings
-const CAMERA = {
-    fov: 400, // Field of view (perspective strength)
-    height: 50, // Camera height
-    distance: 200 // Camera distance from origin
-};
-
-// ========================================
-// Utility: 3D to 2D Projection
-// ========================================
-function project3Dto2D(x3d, y3d, z3d, canvas) {
-    // Perspective projection
-    const scale = CAMERA.fov / (CAMERA.fov + z3d);
-    const x2d = canvas.width / 2 + x3d * scale;
-    const y2d = canvas.height * 0.85 - y3d * scale + z3d * 0.3; // Higher z = higher on screen
-    return { x: x2d, y: y2d, scale };
-}
-
-// ========================================
-// Game State
-// ========================================
-class GameState {
+class RingTossGame {
     constructor() {
+        this.app = null;
+        this.gameContainer = null;
+
+        // Game state
         this.score = 0;
-        this.bestScore = parseInt(localStorage.getItem('ringToss_bestScore')) || 0;
+        this.bestScore = parseInt(localStorage.getItem('ringTossBest')) || 0;
         this.isPlaying = false;
-        this.currentScreen = 'menu';
-    }
+        this.isThrowing = false;
+        this.hasThrown = false;
 
-    addScore() {
-        this.score++;
-        if (this.score > this.bestScore) {
-            this.bestScore = this.score;
-            localStorage.setItem('ringToss_bestScore', this.bestScore);
-            return true;
-        }
-        return false;
-    }
-
-    reset() {
-        this.score = 0;
-        this.isPlaying = false;
-    }
-}
-
-// ========================================
-// Pole (Target) Class - 3D
-// ========================================
-class Pole {
-    constructor() {
-        // 3D position (center of play area, far away)
-        this.x = 0;
-        this.y = 0; // Ground level
-        this.z = 350; // Distance from camera
-        this.height = 120;
-        this.radius = 8;
-    }
-
-    draw(ctx, canvas) {
-        const base = project3Dto2D(this.x, this.y, this.z, canvas);
-        const top = project3Dto2D(this.x, this.height, this.z, canvas);
-
-        // Pole shadow on ground
-        ctx.beginPath();
-        ctx.ellipse(base.x + 10, base.y + 5, 25 * base.scale, 8 * base.scale, 0, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.fill();
-
-        // Pole body
-        const poleWidth = this.radius * 2 * base.scale;
-        const gradient = ctx.createLinearGradient(
-            base.x - poleWidth / 2, 0,
-            base.x + poleWidth / 2, 0
-        );
-        gradient.addColorStop(0, COLORS.poleDark);
-        gradient.addColorStop(0.3, COLORS.poleLight);
-        gradient.addColorStop(0.7, COLORS.pole);
-        gradient.addColorStop(1, COLORS.poleDark);
-
-        ctx.beginPath();
-        ctx.moveTo(base.x - poleWidth / 2, base.y);
-        ctx.lineTo(top.x - poleWidth / 2 * 0.7, top.y);
-        ctx.lineTo(top.x + poleWidth / 2 * 0.7, top.y);
-        ctx.lineTo(base.x + poleWidth / 2, base.y);
-        ctx.closePath();
-        ctx.fillStyle = gradient;
-        ctx.fill();
-
-        // Pole top cap
-        ctx.beginPath();
-        ctx.arc(top.x, top.y, poleWidth / 2 * 0.8, 0, Math.PI * 2);
-        ctx.fillStyle = COLORS.poleLight;
-        ctx.fill();
-
-        // Base
-        ctx.beginPath();
-        ctx.ellipse(base.x, base.y, 30 * base.scale, 10 * base.scale, 0, 0, Math.PI * 2);
-        ctx.fillStyle = COLORS.poleDark;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.ellipse(base.x, base.y - 3, 30 * base.scale, 10 * base.scale, 0, 0, Math.PI * 2);
-        ctx.fillStyle = COLORS.pole;
-        ctx.fill();
-    }
-
-    getHitZone() {
-        return {
-            x: this.x,
-            z: this.z,
-            radius: this.radius * 1.5, // Hit detection radius
-            minY: 20,
-            maxY: this.height - 10
+        // 3D World settings
+        this.world = {
+            groundY: 0.7,      // Ground position (0-1 of screen height)
+            poleZ: 800,        // Pole distance from camera
+            cameraHeight: 200, // Camera height
+            fov: 400           // Field of view
         };
-    }
-}
-
-// ========================================
-// Ring Class - 3D
-// ========================================
-class Ring {
-    constructor(canvas) {
-        this.canvas = canvas;
-        this.reset();
-    }
-
-    reset() {
-        // Starting position (near camera, centered)
-        this.x = 0;
-        this.y = 30; // Slightly above ground
-        this.z = 50; // Near camera
-
-        // Velocity
-        this.vx = 0;
-        this.vy = 0;
-        this.vz = 0;
 
         // Ring properties
-        this.outerRadius = 25;
-        this.innerRadius = 15;
-        this.tilt = 0.3; // Ring tilt angle (radians) - tilted toward camera
-        this.rotation = 0;
-
-        this.state = 'ready'; // ready, aiming, flying, success, fail
-        this.trail = [];
-
-        // Landing state
-        this.onPole = false;
-        this.settleY = 0;
-    }
-
-    launch(power, angle) {
-        // angle: horizontal angle (-1 to 1, left to right)
-        // power: throw strength (0 to 1)
-
-        const throwPower = power * PHYSICS.maxPower * PHYSICS.throwPowerMultiplier;
-
-        this.vx = angle * throwPower * 0.3; // Slight horizontal
-        this.vy = throwPower * 0.5; // Upward arc
-        this.vz = throwPower * 0.9; // Forward (into screen)
-
-        this.state = 'flying';
-    }
-
-    update(dt) {
-        if (this.state !== 'flying') return;
-
-        // Save trail
-        if (this.z < 400) {
-            this.trail.push({ x: this.x, y: this.y, z: this.z, alpha: 1 });
-            if (this.trail.length > 15) this.trail.shift();
-        }
-
-        // Update trail alpha
-        this.trail.forEach((t, i) => {
-            t.alpha = (i / this.trail.length) * 0.4;
-        });
-
-        // Apply physics
-        this.x += this.vx * dt;
-        this.y += this.vy * dt;
-        this.z += this.vz * dt;
-
-        // Gravity (pulls down on Y)
-        this.vy -= PHYSICS.gravity * dt;
-
-        // Air resistance
-        this.vx *= PHYSICS.airResistance;
-        this.vy *= PHYSICS.airResistance;
-        this.vz *= PHYSICS.airResistance;
-
-        // Ring rotation during flight
-        this.rotation += 3 * dt;
-        this.tilt = Math.max(0.1, this.tilt - 0.5 * dt); // Flatten as it flies
-
-        // Check if ring went past target or fell
-        if (this.z > 500 || this.y < -50) {
-            this.state = 'fail';
-        }
-    }
-
-    draw(ctx, canvas) {
-        // Draw trail
-        this.trail.forEach(t => {
-            const proj = project3Dto2D(t.x, t.y, t.z, canvas);
-            if (proj.scale > 0.1) {
-                ctx.beginPath();
-                ctx.arc(proj.x, proj.y, 8 * proj.scale, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(99, 102, 241, ${t.alpha})`;
-                ctx.fill();
-            }
-        });
-
-        const proj = project3Dto2D(this.x, this.y, this.z, canvas);
-        if (proj.scale < 0.05) return;
-
-        const scale = proj.scale;
-        const outerR = this.outerRadius * scale;
-        const innerR = this.innerRadius * scale;
-
-        ctx.save();
-        ctx.translate(proj.x, proj.y);
-
-        // Ring tilt effect (ellipse instead of circle)
-        const tiltFactor = Math.cos(this.tilt);
-
-        // Shadow
-        ctx.beginPath();
-        ctx.ellipse(3, 3, outerR, outerR * tiltFactor, 0, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-        ctx.fill();
-
-        // Ring outer
-        ctx.beginPath();
-        ctx.ellipse(0, 0, outerR, outerR * tiltFactor, 0, 0, Math.PI * 2);
-        const gradient = ctx.createRadialGradient(
-            -outerR * 0.3, -outerR * 0.3 * tiltFactor, 0,
-            0, 0, outerR
-        );
-        gradient.addColorStop(0, COLORS.ringLight);
-        gradient.addColorStop(0.6, COLORS.ring);
-        gradient.addColorStop(1, COLORS.ringDark);
-        ctx.fillStyle = gradient;
-        ctx.fill();
-
-        // Ring hole (inner)
-        ctx.beginPath();
-        ctx.ellipse(0, 0, innerR, innerR * tiltFactor, 0, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(12, 12, 20, 0.9)';
-        ctx.fill();
-
-        // Highlight
-        ctx.beginPath();
-        ctx.ellipse(-outerR * 0.35, -outerR * 0.35 * tiltFactor, outerR * 0.15, outerR * 0.1 * tiltFactor, -0.5, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.fill();
-
-        ctx.restore();
-    }
-
-    checkCollision(pole) {
-        if (this.state !== 'flying') return null;
-
-        const hitZone = pole.getHitZone();
-
-        // Check if ring is near the pole in Z
-        const zDiff = Math.abs(this.z - hitZone.z);
-        if (zDiff > 30) return null; // Too far in Z
-
-        // Check if ring center is close to pole center in X
-        const xDiff = Math.abs(this.x - hitZone.x);
-
-        // Check Y is in valid range (ring should be above base, below top)
-        const inYRange = this.y > hitZone.minY && this.y < hitZone.maxY;
-
-        // Success: ring hole passes over the pole
-        if (xDiff < this.innerRadius && inYRange && this.vz > 0) {
-            // Ring caught!
-            this.state = 'success';
-            this.settleY = this.y;
-            return 'success';
-        }
-
-        // Miss: ring hit the pole but didn't go through
-        if (xDiff < this.outerRadius + hitZone.radius && zDiff < 20) {
-            // Bounced off
-            if (Math.abs(this.x - hitZone.x) > this.innerRadius) {
-                this.vz = -this.vz * 0.3;
-                this.vx += (this.x > hitZone.x ? 1 : -1) * 20;
-            }
-        }
-
-        return null;
-    }
-}
-
-// ========================================
-// Particle System
-// ========================================
-class ParticleSystem {
-    constructor() {
-        this.particles = [];
-    }
-
-    emit(x, y, z, count, canvas) {
-        for (let i = 0; i < count; i++) {
-            const proj = project3Dto2D(x, y, z, canvas);
-            this.particles.push({
-                x: proj.x,
-                y: proj.y,
-                vx: (Math.random() - 0.5) * 200,
-                vy: (Math.random() - 0.5) * 200 - 100,
-                radius: Math.random() * 4 + 2,
-                color: Math.random() > 0.5 ? COLORS.ring : COLORS.ringLight,
-                life: 1,
-                decay: Math.random() * 0.02 + 0.015
-            });
-        }
-    }
-
-    update(dt) {
-        this.particles = this.particles.filter(p => {
-            p.x += p.vx * dt;
-            p.y += p.vy * dt;
-            p.vy += 300 * dt;
-            p.life -= p.decay;
-            return p.life > 0;
-        });
-    }
-
-    draw(ctx) {
-        this.particles.forEach(p => {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.radius * p.life, 0, Math.PI * 2);
-            ctx.fillStyle = p.color;
-            ctx.globalAlpha = p.life;
-            ctx.fill();
-            ctx.globalAlpha = 1;
-        });
-    }
-}
-
-// ========================================
-// Ground Plane
-// ========================================
-function drawGround(ctx, canvas) {
-    // Gradient ground
-    const gradient = ctx.createLinearGradient(0, canvas.height * 0.5, 0, canvas.height);
-    gradient.addColorStop(0, '#1e1e2e');
-    gradient.addColorStop(1, '#0f0f1a');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, canvas.height * 0.5, canvas.width, canvas.height * 0.5);
-
-    // Grid lines for depth perception
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
-    ctx.lineWidth = 1;
-
-    // Horizontal lines (getting closer together as they go back)
-    for (let i = 0; i < 20; i++) {
-        const z = 50 + i * 30;
-        const proj = project3Dto2D(0, 0, z, canvas);
-        const y = proj.y;
-        if (y < canvas.height * 0.5) continue;
-
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
-        ctx.stroke();
-    }
-
-    // Vertical lines (converging to center)
-    for (let i = -5; i <= 5; i++) {
-        const nearProj = project3Dto2D(i * 80, 0, 50, canvas);
-        const farProj = project3Dto2D(i * 80, 0, 500, canvas);
-
-        ctx.beginPath();
-        ctx.moveTo(nearProj.x, nearProj.y);
-        ctx.lineTo(farProj.x, farProj.y);
-        ctx.stroke();
-    }
-}
-
-// ========================================
-// Aiming Guide
-// ========================================
-function drawAimingGuide(ctx, canvas, startPos, currentPos, ring) {
-    if (!startPos || !currentPos) return;
-
-    const dx = startPos.x - currentPos.x;
-    const dy = startPos.y - currentPos.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    const power = Math.min(distance / 150, 1);
-    const angle = dx / 200; // Horizontal angle
-
-    // Power bar
-    const barWidth = 120;
-    const barHeight = 8;
-    const barX = canvas.width / 2 - barWidth / 2;
-    const barY = canvas.height - 60;
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.beginPath();
-    ctx.roundRect(barX, barY, barWidth, barHeight, 4);
-    ctx.fill();
-
-    const powerColor = power < 0.5 ? '#10b981' : power < 0.8 ? '#f59e0b' : '#ef4444';
-    ctx.fillStyle = powerColor;
-    ctx.beginPath();
-    ctx.roundRect(barX, barY, barWidth * power, barHeight, 4);
-    ctx.fill();
-
-    // Direction indicator
-    const proj = project3Dto2D(ring.x, ring.y, ring.z, canvas);
-    const indicatorLength = 60 * power;
-
-    ctx.beginPath();
-    ctx.moveTo(proj.x, proj.y);
-    ctx.lineTo(proj.x - angle * indicatorLength, proj.y - indicatorLength);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.stroke();
-
-    // Arrow head
-    ctx.beginPath();
-    ctx.arc(proj.x - angle * indicatorLength, proj.y - indicatorLength, 6, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.fill();
-
-    // Trajectory preview (dots)
-    ctx.fillStyle = 'rgba(99, 102, 241, 0.3)';
-    let px = ring.x, py = ring.y, pz = ring.z;
-    let pvx = angle * power * PHYSICS.maxPower * 0.3 * PHYSICS.throwPowerMultiplier;
-    let pvy = power * PHYSICS.maxPower * 0.5 * PHYSICS.throwPowerMultiplier;
-    let pvz = power * PHYSICS.maxPower * 0.9 * PHYSICS.throwPowerMultiplier;
-
-    for (let t = 0; t < 30; t++) {
-        px += pvx * 0.016;
-        py += pvy * 0.016;
-        pz += pvz * 0.016;
-        pvy -= PHYSICS.gravity * 0.016;
-
-        if (pz > 400 || py < 0) break;
-
-        const dotProj = project3Dto2D(px, py, pz, canvas);
-        if (dotProj.scale > 0.1) {
-            ctx.beginPath();
-            ctx.arc(dotProj.x, dotProj.y, 3 * dotProj.scale, 0, Math.PI * 2);
-            ctx.fill();
-        }
-    }
-}
-
-// ========================================
-// Main Game Class
-// ========================================
-class Game {
-    constructor() {
-        this.canvas = document.getElementById('game-canvas');
-        this.ctx = this.canvas.getContext('2d');
-
-        this.state = new GameState();
-        this.pole = new Pole();
         this.ring = null;
-        this.particles = new ParticleSystem();
+        this.ringState = {
+            x: 0, y: 0, z: 50,
+            vx: 0, vy: 0, vz: 0,
+            rotation: 0,
+            rotationSpeed: 0,
+            scale: 1
+        };
 
+        // Pole properties
+        this.pole = null;
+        this.poleState = {
+            x: 0,
+            baseWidth: 20,
+            topWidth: 12,
+            height: 180
+        };
+
+        // Touch/drag state
         this.dragStart = null;
         this.dragCurrent = null;
         this.isDragging = false;
 
-        this.lastTime = 0;
+        // Visual elements
+        this.groundGraphics = null;
+        this.shadowGraphics = null;
+        this.particles = [];
+        this.glowFilters = [];
+
+        // Animation
+        this.gameLoop = null;
 
         this.init();
     }
 
-    init() {
-        this.setupCanvas();
+    async init() {
+        // Initialize PixiJS Application
+        this.app = new PIXI.Application();
+
+        await this.app.init({
+            background: '#09090b',
+            resizeTo: document.getElementById('game-container'),
+            antialias: true,
+            resolution: window.devicePixelRatio || 1,
+            autoDensity: true
+        });
+
+        this.gameContainer = document.getElementById('game-container');
+        this.gameContainer.appendChild(this.app.canvas);
+
+        // Create game layers
+        this.backgroundLayer = new PIXI.Container();
+        this.gameLayer = new PIXI.Container();
+        this.effectLayer = new PIXI.Container();
+        this.uiLayer = new PIXI.Container();
+
+        this.app.stage.addChild(this.backgroundLayer);
+        this.app.stage.addChild(this.gameLayer);
+        this.app.stage.addChild(this.effectLayer);
+        this.app.stage.addChild(this.uiLayer);
+
+        this.createBackground();
+        this.createGround();
+        this.createPole();
+        this.createRing();
+        this.createShadow();
+
         this.setupEventListeners();
-        this.updateUI();
-        this.gameLoop(0);
+        this.updateScoreDisplays();
+
+        // Start render loop
+        this.app.ticker.add(this.update.bind(this));
+
+        // Handle resize
+        window.addEventListener('resize', () => this.onResize());
     }
 
-    setupCanvas() {
-        const resize = () => {
-            const container = this.canvas.parentElement;
-            this.canvas.width = container.clientWidth;
-            this.canvas.height = container.clientHeight - 80;
+    createBackground() {
+        const { width, height } = this.app.screen;
 
-            this.ring = new Ring(this.canvas);
+        // Gradient background
+        const bg = new PIXI.Graphics();
+        bg.rect(0, 0, width, height);
+        bg.fill({ color: 0x09090b });
+        this.backgroundLayer.addChild(bg);
+
+        // Ambient glow at top
+        const ambientGlow = new PIXI.Graphics();
+        ambientGlow.ellipse(width / 2, -100, width * 0.8, 300);
+        ambientGlow.fill({ color: 0xa855f7, alpha: 0.05 });
+        this.backgroundLayer.addChild(ambientGlow);
+
+        // Grid lines for depth perception
+        this.gridLines = new PIXI.Graphics();
+        this.drawGrid();
+        this.backgroundLayer.addChild(this.gridLines);
+    }
+
+    drawGrid() {
+        const { width, height } = this.app.screen;
+        const groundY = height * this.world.groundY;
+
+        this.gridLines.clear();
+
+        // Perspective grid lines
+        const vanishY = height * 0.3;
+        const numLines = 12;
+
+        for (let i = 0; i <= numLines; i++) {
+            const x = (i / numLines) * width;
+            const alpha = 0.03 + Math.abs(i - numLines / 2) / numLines * 0.02;
+
+            this.gridLines.moveTo(x, groundY);
+            this.gridLines.lineTo(width / 2, vanishY);
+            this.gridLines.stroke({ width: 1, color: 0xa855f7, alpha: alpha });
+        }
+
+        // Horizontal depth lines
+        for (let i = 0; i < 8; i++) {
+            const t = i / 8;
+            const y = groundY - (groundY - vanishY) * t;
+            const spreadX = (1 - t * 0.7) * width / 2;
+
+            this.gridLines.moveTo(width / 2 - spreadX, y);
+            this.gridLines.lineTo(width / 2 + spreadX, y);
+            this.gridLines.stroke({ width: 1, color: 0xa855f7, alpha: 0.02 + t * 0.02 });
+        }
+    }
+
+    createGround() {
+        const { width, height } = this.app.screen;
+
+        this.groundGraphics = new PIXI.Graphics();
+        this.drawGround();
+        this.backgroundLayer.addChild(this.groundGraphics);
+    }
+
+    drawGround() {
+        const { width, height } = this.app.screen;
+        const groundY = height * this.world.groundY;
+
+        this.groundGraphics.clear();
+
+        // Ground plane with gradient effect
+        const groundHeight = height - groundY;
+        this.groundGraphics.rect(0, groundY, width, groundHeight);
+        this.groundGraphics.fill({ color: 0x18181b, alpha: 0.8 });
+
+        // Ground line
+        this.groundGraphics.moveTo(0, groundY);
+        this.groundGraphics.lineTo(width, groundY);
+        this.groundGraphics.stroke({ width: 2, color: 0xa855f7, alpha: 0.3 });
+    }
+
+    createPole() {
+        const { width, height } = this.app.screen;
+
+        this.poleContainer = new PIXI.Container();
+        this.gameLayer.addChild(this.poleContainer);
+
+        this.pole = new PIXI.Graphics();
+        this.poleGlow = new PIXI.Graphics();
+
+        this.poleContainer.addChild(this.poleGlow);
+        this.poleContainer.addChild(this.pole);
+
+        this.drawPole();
+    }
+
+    drawPole() {
+        const { width, height } = this.app.screen;
+        const groundY = height * this.world.groundY;
+
+        // Calculate pole position with perspective
+        const poleScreenPos = this.project3Dto2D(0, 0, this.world.poleZ);
+        const poleScale = poleScreenPos.scale;
+
+        const poleHeight = this.poleState.height * poleScale;
+        const baseWidth = this.poleState.baseWidth * poleScale;
+        const topWidth = this.poleState.topWidth * poleScale;
+
+        const poleX = width / 2;
+        const poleBaseY = groundY - 20 * poleScale;
+        const poleTopY = poleBaseY - poleHeight;
+
+        // Glow effect
+        this.poleGlow.clear();
+        this.poleGlow.moveTo(poleX - baseWidth / 2 - 8, poleBaseY);
+        this.poleGlow.lineTo(poleX - topWidth / 2 - 6, poleTopY);
+        this.poleGlow.lineTo(poleX + topWidth / 2 + 6, poleTopY);
+        this.poleGlow.lineTo(poleX + baseWidth / 2 + 8, poleBaseY);
+        this.poleGlow.closePath();
+        this.poleGlow.fill({ color: 0xa855f7, alpha: 0.15 });
+
+        // Main pole
+        this.pole.clear();
+
+        // Pole body (trapezoid for perspective)
+        this.pole.moveTo(poleX - baseWidth / 2, poleBaseY);
+        this.pole.lineTo(poleX - topWidth / 2, poleTopY);
+        this.pole.lineTo(poleX + topWidth / 2, poleTopY);
+        this.pole.lineTo(poleX + baseWidth / 2, poleBaseY);
+        this.pole.closePath();
+        this.pole.fill({ color: 0x3f3f46 });
+
+        // Pole highlight
+        this.pole.moveTo(poleX - baseWidth / 4, poleBaseY);
+        this.pole.lineTo(poleX - topWidth / 4, poleTopY);
+        this.pole.lineTo(poleX, poleTopY);
+        this.pole.lineTo(poleX, poleBaseY);
+        this.pole.closePath();
+        this.pole.fill({ color: 0x52525b, alpha: 0.5 });
+
+        // Pole cap
+        const capRadius = topWidth / 2 + 4;
+        this.pole.ellipse(poleX, poleTopY, capRadius, capRadius * 0.4);
+        this.pole.fill({ color: 0xa855f7 });
+
+        // Cap glow
+        this.pole.ellipse(poleX, poleTopY, capRadius * 1.5, capRadius * 0.6);
+        this.pole.fill({ color: 0xa855f7, alpha: 0.2 });
+
+        // Base
+        this.pole.ellipse(poleX, poleBaseY + 5, baseWidth * 0.8, baseWidth * 0.3);
+        this.pole.fill({ color: 0x27272a });
+
+        // Store pole top position for collision
+        this.poleState.screenX = poleX;
+        this.poleState.screenTopY = poleTopY;
+        this.poleState.screenBaseY = poleBaseY;
+        this.poleState.screenWidth = topWidth;
+        this.poleState.scale = poleScale;
+    }
+
+    createRing() {
+        this.ringContainer = new PIXI.Container();
+        this.gameLayer.addChild(this.ringContainer);
+
+        this.ringGlow = new PIXI.Graphics();
+        this.ring = new PIXI.Graphics();
+        this.ringInner = new PIXI.Graphics();
+
+        this.ringContainer.addChild(this.ringGlow);
+        this.ringContainer.addChild(this.ring);
+        this.ringContainer.addChild(this.ringInner);
+
+        this.resetRing();
+    }
+
+    drawRing() {
+        const { width, height } = this.app.screen;
+
+        // Project ring position to 2D
+        const screenPos = this.project3Dto2D(
+            this.ringState.x,
+            this.ringState.y,
+            this.ringState.z
+        );
+
+        const scale = screenPos.scale * this.ringState.scale;
+        const ringRadius = 35 * scale;
+        const ringThickness = 8 * scale;
+
+        // Calculate tilt based on throw angle
+        const tiltY = Math.cos(this.ringState.rotation) * 0.3 + 0.7;
+
+        this.ringContainer.x = screenPos.x;
+        this.ringContainer.y = screenPos.y;
+
+        // Clear previous drawings
+        this.ringGlow.clear();
+        this.ring.clear();
+        this.ringInner.clear();
+
+        // Outer glow
+        this.ringGlow.ellipse(0, 0, ringRadius + 15, (ringRadius + 15) * tiltY);
+        this.ringGlow.fill({ color: 0xa855f7, alpha: 0.2 });
+
+        // Main ring (torus shape approximation)
+        this.ring.ellipse(0, 0, ringRadius, ringRadius * tiltY);
+        this.ring.fill({ color: 0xa855f7 });
+
+        // Inner cutout
+        this.ringInner.ellipse(0, 0, ringRadius - ringThickness, (ringRadius - ringThickness) * tiltY);
+        this.ringInner.fill({ color: 0x09090b });
+
+        // Highlight
+        const highlightOffset = ringThickness * 0.3;
+        this.ring.ellipse(-highlightOffset, -highlightOffset * tiltY, ringRadius * 0.7, ringRadius * 0.7 * tiltY);
+        this.ring.stroke({ width: 2, color: 0xc084fc, alpha: 0.5 });
+    }
+
+    createShadow() {
+        this.shadowGraphics = new PIXI.Graphics();
+        this.gameLayer.addChild(this.shadowGraphics);
+
+        // Make sure shadow is behind ring but above ground
+        this.gameLayer.setChildIndex(this.shadowGraphics, 0);
+    }
+
+    drawShadow() {
+        const { width, height } = this.app.screen;
+        const groundY = height * this.world.groundY;
+
+        this.shadowGraphics.clear();
+
+        if (!this.isThrowing && !this.hasThrown) return;
+
+        // Project shadow position (ring x/z but y = 0)
+        const shadowPos = this.project3Dto2D(
+            this.ringState.x,
+            0,
+            this.ringState.z
+        );
+
+        const shadowScale = shadowPos.scale;
+        const shadowRadius = 30 * shadowScale;
+        const shadowAlpha = Math.max(0, 0.3 - this.ringState.z / 2000);
+
+        this.shadowGraphics.ellipse(shadowPos.x, groundY - 10 * shadowScale, shadowRadius, shadowRadius * 0.3);
+        this.shadowGraphics.fill({ color: 0x000000, alpha: shadowAlpha });
+    }
+
+    project3Dto2D(x, y, z) {
+        const { width, height } = this.app.screen;
+        const groundY = height * this.world.groundY;
+
+        // Perspective projection
+        const scale = this.world.fov / (this.world.fov + z);
+
+        const screenX = width / 2 + x * scale;
+        const screenY = groundY - (y + this.world.cameraHeight) * scale;
+
+        return { x: screenX, y: screenY, scale };
+    }
+
+    resetRing() {
+        const { width, height } = this.app.screen;
+
+        this.ringState = {
+            x: 0,
+            y: 50,
+            z: 50,
+            vx: 0,
+            vy: 0,
+            vz: 0,
+            rotation: 0,
+            rotationSpeed: 0,
+            scale: 1
         };
 
-        resize();
-        window.addEventListener('resize', resize);
+        this.hasThrown = false;
+        this.isThrowing = false;
+
+        this.drawRing();
+        this.drawShadow();
     }
 
     setupEventListeners() {
-        // Menu buttons
-        document.getElementById('btn-solo').addEventListener('click', () => this.startGame('solo'));
-        document.getElementById('btn-online').addEventListener('click', () => this.showScreen('nickname'));
-        document.getElementById('btn-leaderboard').addEventListener('click', () => this.showLeaderboard());
+        const canvas = this.app.canvas;
 
-        // Game over buttons
-        document.getElementById('btn-retry').addEventListener('click', () => this.startGame('solo'));
-        document.getElementById('btn-home').addEventListener('click', () => this.showScreen('menu'));
+        // Touch events
+        canvas.addEventListener('touchstart', (e) => this.onPointerDown(e.touches[0]), { passive: false });
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            this.onPointerMove(e.touches[0]);
+        }, { passive: false });
+        canvas.addEventListener('touchend', (e) => this.onPointerUp(), { passive: false });
 
-        // Nickname buttons
-        document.getElementById('btn-join').addEventListener('click', () => this.joinOnline());
-        document.getElementById('btn-cancel').addEventListener('click', () => this.showScreen('menu'));
+        // Mouse events
+        canvas.addEventListener('mousedown', (e) => this.onPointerDown(e));
+        canvas.addEventListener('mousemove', (e) => this.onPointerMove(e));
+        canvas.addEventListener('mouseup', () => this.onPointerUp());
+        canvas.addEventListener('mouseleave', () => this.onPointerUp());
+
+        // UI buttons
+        document.getElementById('btn-solo')?.addEventListener('click', () => this.startGame());
+        document.getElementById('btn-back')?.addEventListener('click', () => this.exitGame());
+        document.getElementById('btn-retry')?.addEventListener('click', () => this.startGame());
+        document.getElementById('btn-home')?.addEventListener('click', () => this.exitGame());
 
         // Leaderboard
-        document.getElementById('btn-close-leaderboard').addEventListener('click', () => this.showScreen('menu'));
+        document.getElementById('btn-leaderboard')?.addEventListener('click', () => this.showLeaderboard());
+        document.getElementById('btn-close-leaderboard')?.addEventListener('click', () => this.hideLeaderboard());
 
-        // Game input (mouse)
-        this.canvas.addEventListener('mousedown', (e) => this.onDragStart(e));
-        this.canvas.addEventListener('mousemove', (e) => this.onDragMove(e));
-        this.canvas.addEventListener('mouseup', (e) => this.onDragEnd(e));
-        this.canvas.addEventListener('mouseleave', (e) => this.onDragEnd(e));
-
-        // Game input (touch)
-        this.canvas.addEventListener('touchstart', (e) => this.onDragStart(e), { passive: false });
-        this.canvas.addEventListener('touchmove', (e) => this.onDragMove(e), { passive: false });
-        this.canvas.addEventListener('touchend', (e) => this.onDragEnd(e));
-        this.canvas.addEventListener('touchcancel', (e) => this.onDragEnd(e));
+        // Online (placeholder)
+        document.getElementById('btn-online')?.addEventListener('click', () => this.showNicknameInput());
+        document.getElementById('btn-cancel')?.addEventListener('click', () => this.hideNicknameInput());
+        document.getElementById('btn-join')?.addEventListener('click', () => this.joinOnline());
     }
 
-    getPointerPos(e) {
-        const rect = this.canvas.getBoundingClientRect();
-        if (e.touches && e.touches.length > 0) {
-            return {
-                x: e.touches[0].clientX - rect.left,
-                y: e.touches[0].clientY - rect.top
-            };
-        }
-        return {
+    onPointerDown(e) {
+        if (!this.isPlaying || this.isThrowing || this.hasThrown) return;
+
+        const rect = this.app.canvas.getBoundingClientRect();
+        this.dragStart = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+            time: Date.now()
+        };
+        this.dragCurrent = { ...this.dragStart };
+        this.isDragging = true;
+
+        // Hide hint
+        const hint = document.getElementById('game-hint');
+        if (hint) hint.style.opacity = '0';
+    }
+
+    onPointerMove(e) {
+        if (!this.isDragging) return;
+
+        const rect = this.app.canvas.getBoundingClientRect();
+        this.dragCurrent = {
             x: e.clientX - rect.left,
             y: e.clientY - rect.top
         };
+
+        // Visual feedback - tilt ring based on drag
+        const dx = this.dragCurrent.x - this.dragStart.x;
+        const dy = this.dragCurrent.y - this.dragStart.y;
+
+        this.ringState.x = dx * 0.3;
+        this.ringState.rotation = -dy * 0.01;
+
+        this.drawRing();
     }
 
-    onDragStart(e) {
-        if (!this.state.isPlaying || this.ring.state !== 'ready') return;
-        e.preventDefault();
+    onPointerUp() {
+        if (!this.isDragging || !this.isPlaying) {
+            this.isDragging = false;
+            return;
+        }
 
-        this.isDragging = true;
-        this.dragStart = this.getPointerPos(e);
-        this.dragCurrent = this.dragStart;
-        this.ring.state = 'aiming';
+        const dx = this.dragCurrent.x - this.dragStart.x;
+        const dy = this.dragCurrent.y - this.dragStart.y;
+        const dt = Math.max(1, Date.now() - this.dragStart.time);
 
-        document.getElementById('game-hint').style.display = 'none';
-    }
-
-    onDragMove(e) {
-        if (!this.isDragging) return;
-        e.preventDefault();
-
-        this.dragCurrent = this.getPointerPos(e);
-    }
-
-    onDragEnd(e) {
-        if (!this.isDragging) return;
-        e.preventDefault();
+        // Only throw if swiped upward
+        if (dy < -30) {
+            this.throwRing(dx, dy, dt);
+        } else {
+            // Reset ring position if not thrown
+            this.ringState.x = 0;
+            this.ringState.rotation = 0;
+            this.drawRing();
+        }
 
         this.isDragging = false;
+    }
 
-        if (this.ring.state === 'aiming') {
-            const dx = this.dragStart.x - this.dragCurrent.x;
-            const dy = this.dragStart.y - this.dragCurrent.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+    throwRing(dx, dy, dt) {
+        this.isThrowing = true;
+        this.hasThrown = true;
 
-            if (distance > 20) {
-                const power = Math.min(distance / 150, 1);
-                const angle = dx / 200;
-                this.ring.launch(power, angle);
-            } else {
-                this.ring.state = 'ready';
+        // Calculate throw velocity
+        const power = Math.min(Math.abs(dy) / dt * 10, 35);
+        const direction = dx / Math.abs(dy);
+
+        this.ringState.vx = direction * power * 1.5;
+        this.ringState.vy = power * 0.6;
+        this.ringState.vz = power * 25;
+        this.ringState.rotationSpeed = power * 0.05;
+
+        // Add throw particles
+        this.createThrowParticles();
+    }
+
+    createThrowParticles() {
+        const screenPos = this.project3Dto2D(
+            this.ringState.x,
+            this.ringState.y,
+            this.ringState.z
+        );
+
+        for (let i = 0; i < 10; i++) {
+            const particle = new PIXI.Graphics();
+            particle.circle(0, 0, 3 + Math.random() * 4);
+            particle.fill({ color: 0xa855f7, alpha: 0.8 });
+
+            particle.x = screenPos.x;
+            particle.y = screenPos.y;
+            particle.vx = (Math.random() - 0.5) * 8;
+            particle.vy = (Math.random() - 0.5) * 8 - 2;
+            particle.life = 1;
+            particle.decay = 0.02 + Math.random() * 0.02;
+
+            this.effectLayer.addChild(particle);
+            this.particles.push(particle);
+        }
+    }
+
+    createSuccessParticles() {
+        const { width, height } = this.app.screen;
+
+        for (let i = 0; i < 30; i++) {
+            const particle = new PIXI.Graphics();
+            const size = 4 + Math.random() * 8;
+            particle.circle(0, 0, size);
+            particle.fill({ color: [0xa855f7, 0xc084fc, 0xe879f9][Math.floor(Math.random() * 3)] });
+
+            particle.x = this.poleState.screenX;
+            particle.y = this.poleState.screenTopY;
+
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 5 + Math.random() * 10;
+            particle.vx = Math.cos(angle) * speed;
+            particle.vy = Math.sin(angle) * speed - 5;
+            particle.life = 1;
+            particle.decay = 0.01 + Math.random() * 0.015;
+
+            this.effectLayer.addChild(particle);
+            this.particles.push(particle);
+        }
+    }
+
+    createFailParticles() {
+        const screenPos = this.project3Dto2D(
+            this.ringState.x,
+            this.ringState.y,
+            this.ringState.z
+        );
+
+        for (let i = 0; i < 15; i++) {
+            const particle = new PIXI.Graphics();
+            particle.circle(0, 0, 3 + Math.random() * 5);
+            particle.fill({ color: 0xef4444, alpha: 0.8 });
+
+            particle.x = screenPos.x;
+            particle.y = screenPos.y;
+
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 3 + Math.random() * 6;
+            particle.vx = Math.cos(angle) * speed;
+            particle.vy = Math.sin(angle) * speed;
+            particle.life = 1;
+            particle.decay = 0.02 + Math.random() * 0.02;
+
+            this.effectLayer.addChild(particle);
+            this.particles.push(particle);
+        }
+    }
+
+    updateParticles() {
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            const p = this.particles[i];
+
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.3; // Gravity
+            p.life -= p.decay;
+            p.alpha = p.life;
+            p.scale.set(p.life);
+
+            if (p.life <= 0) {
+                this.effectLayer.removeChild(p);
+                p.destroy();
+                this.particles.splice(i, 1);
+            }
+        }
+    }
+
+    update(ticker) {
+        if (!this.isPlaying) return;
+
+        const delta = ticker.deltaTime;
+
+        // Update particles
+        this.updateParticles();
+
+        if (!this.isThrowing) return;
+
+        // Physics update
+        const gravity = 0.4;
+        const airResistance = 0.99;
+
+        this.ringState.vy -= gravity * delta;
+        this.ringState.vx *= airResistance;
+        this.ringState.vy *= airResistance;
+
+        this.ringState.x += this.ringState.vx * delta;
+        this.ringState.y += this.ringState.vy * delta;
+        this.ringState.z += this.ringState.vz * delta;
+        this.ringState.rotation += this.ringState.rotationSpeed * delta;
+
+        // Check collision with pole
+        this.checkCollision();
+
+        // Redraw
+        this.drawRing();
+        this.drawShadow();
+    }
+
+    checkCollision() {
+        const { width, height } = this.app.screen;
+        const groundY = height * this.world.groundY;
+
+        // Check if ring passed the pole's Z position
+        const poleZ = this.world.poleZ;
+        const ringRadius = 35;
+
+        // Ring is at pole depth
+        if (this.ringState.z >= poleZ - 50 && this.ringState.z <= poleZ + 50) {
+            const poleWidth = this.poleState.baseWidth / 2;
+
+            // Check if ring is aligned with pole
+            if (Math.abs(this.ringState.x) < ringRadius + poleWidth &&
+                this.ringState.y > 50 && this.ringState.y < 250) {
+
+                // Success! Ring landed on pole
+                this.onSuccess();
+                return;
             }
         }
 
-        this.dragStart = null;
-        this.dragCurrent = null;
-    }
-
-    startGame(mode) {
-        this.state.reset();
-        this.state.isPlaying = true;
-        this.ring.reset();
-        this.showScreen('game');
-        this.updateUI();
-        document.getElementById('game-hint').style.display = 'block';
-    }
-
-    showScreen(screen) {
-        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-        document.getElementById(`${screen}-screen`).classList.add('active');
-        this.state.currentScreen = screen;
-    }
-
-    showLeaderboard() {
-        this.showScreen('leaderboard');
-        const list = document.getElementById('leaderboard-list');
-        list.innerHTML = `
-            <div class="leaderboard-item top-1">
-                <span class="leaderboard-rank">1</span>
-                <span class="leaderboard-name">ProGamer</span>
-                <span class="leaderboard-score">127</span>
-            </div>
-            <div class="leaderboard-item top-2">
-                <span class="leaderboard-rank">2</span>
-                <span class="leaderboard-name">RingMaster</span>
-                <span class="leaderboard-score">89</span>
-            </div>
-            <div class="leaderboard-item top-3">
-                <span class="leaderboard-rank">3</span>
-                <span class="leaderboard-name">Player123</span>
-                <span class="leaderboard-score">76</span>
-            </div>
-            <div class="leaderboard-item">
-                <span class="leaderboard-rank">4</span>
-                <span class="leaderboard-name">TossKing</span>
-                <span class="leaderboard-score">65</span>
-            </div>
-            <div class="leaderboard-item">
-                <span class="leaderboard-rank">5</span>
-                <span class="leaderboard-name">Gamer99</span>
-                <span class="leaderboard-score">54</span>
-            </div>
-        `;
-    }
-
-    joinOnline() {
-        const nickname = document.getElementById('nickname-input').value.trim();
-        if (nickname.length < 1) {
-            document.getElementById('nickname-input').focus();
+        // Ring passed the pole or went too far
+        if (this.ringState.z > poleZ + 100) {
+            this.onMiss();
             return;
         }
-        alert('Online mode coming soon!');
-        this.showScreen('menu');
-    }
 
-    gameOver() {
-        this.state.isPlaying = false;
-        const isNewRecord = this.state.score > 0 && this.state.score >= this.state.bestScore;
+        // Ring fell below ground
+        if (this.ringState.y < -50) {
+            this.onMiss();
+            return;
+        }
 
-        document.getElementById('final-score').textContent = this.state.score;
-        document.getElementById('new-record').style.display = isNewRecord ? 'block' : 'none';
-        document.getElementById('menu-best-score').textContent = this.state.bestScore;
-
-        this.showScreen('gameover');
+        // Ring went off screen horizontally
+        if (Math.abs(this.ringState.x) > 500) {
+            this.onMiss();
+            return;
+        }
     }
 
     onSuccess() {
-        this.state.addScore();
-        this.updateUI();
+        this.score++;
+        this.updateScoreDisplays();
+        this.createSuccessParticles();
 
-        // Celebration particles
-        this.particles.emit(this.ring.x, this.ring.y, this.ring.z, 25, this.canvas);
+        // Flash effect
+        this.flashScreen(0xa855f7, 0.3);
 
-        // Reset ring for next throw
+        // Reset for next throw
         setTimeout(() => {
-            this.ring.reset();
-            document.getElementById('game-hint').style.display = 'block';
+            if (this.isPlaying) {
+                this.resetRing();
+            }
+        }, 500);
+
+        this.isThrowing = false;
+    }
+
+    onMiss() {
+        this.isThrowing = false;
+        this.createFailParticles();
+
+        // Flash red
+        this.flashScreen(0xef4444, 0.2);
+
+        // Game over
+        setTimeout(() => {
+            this.endGame();
         }, 800);
     }
 
-    updateUI() {
-        document.getElementById('current-score').textContent = this.state.score;
-        document.getElementById('best-score').textContent = this.state.bestScore;
-        document.getElementById('menu-best-score').textContent = this.state.bestScore;
+    flashScreen(color, alpha) {
+        const { width, height } = this.app.screen;
+
+        const flash = new PIXI.Graphics();
+        flash.rect(0, 0, width, height);
+        flash.fill({ color, alpha });
+        this.effectLayer.addChild(flash);
+
+        // Fade out
+        const fadeOut = () => {
+            flash.alpha -= 0.05;
+            if (flash.alpha <= 0) {
+                this.effectLayer.removeChild(flash);
+                flash.destroy();
+            } else {
+                requestAnimationFrame(fadeOut);
+            }
+        };
+        fadeOut();
     }
 
-    update(dt) {
-        if (!this.state.isPlaying) return;
+    startGame() {
+        this.score = 0;
+        this.isPlaying = true;
+        this.updateScoreDisplays();
+        this.resetRing();
 
-        this.ring.update(dt);
-        this.particles.update(dt);
+        this.showScreen('game-screen');
 
-        // Check collision
-        const result = this.ring.checkCollision(this.pole);
-        if (result === 'success') {
-            this.onSuccess();
-        } else if (this.ring.state === 'fail') {
-            this.particles.emit(this.ring.x, this.ring.y, this.ring.z, 15, this.canvas);
-            setTimeout(() => this.gameOver(), 600);
+        // Show hint
+        const hint = document.getElementById('game-hint');
+        if (hint) {
+            hint.style.opacity = '1';
+            setTimeout(() => {
+                hint.style.opacity = '0';
+            }, 3000);
         }
     }
 
-    draw() {
-        const ctx = this.ctx;
-        const canvas = this.canvas;
+    endGame() {
+        this.isPlaying = false;
 
-        // Clear
-        ctx.fillStyle = '#0c0c14';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Draw ground with perspective grid
-        drawGround(ctx, canvas);
-
-        // Draw pole
-        this.pole.draw(ctx, canvas);
-
-        // Draw ring
-        if (this.ring) this.ring.draw(ctx, canvas);
-
-        // Draw aiming guide
-        if (this.isDragging && this.ring.state === 'aiming') {
-            drawAimingGuide(ctx, canvas, this.dragStart, this.dragCurrent, this.ring);
+        // Update best score
+        if (this.score > this.bestScore) {
+            this.bestScore = this.score;
+            localStorage.setItem('ringTossBest', this.bestScore);
+            document.getElementById('new-record')?.classList.add('show');
+        } else {
+            document.getElementById('new-record')?.classList.remove('show');
         }
 
-        // Draw particles
-        this.particles.draw(ctx);
+        // Update final score
+        document.getElementById('final-score').textContent = this.score;
+
+        // Show game over
+        this.showScreen('gameover-screen');
+        this.updateScoreDisplays();
+
+        // Submit score to server
+        this.submitScore();
     }
 
-    gameLoop(timestamp) {
-        const dt = Math.min((timestamp - this.lastTime) / 1000, 0.1);
-        this.lastTime = timestamp;
+    exitGame() {
+        this.isPlaying = false;
+        this.showScreen('menu-screen');
+    }
 
-        if (this.state.currentScreen === 'game') {
-            this.update(dt);
-            this.draw();
+    updateScoreDisplays() {
+        document.getElementById('current-score').textContent = this.score;
+        document.getElementById('best-score').textContent = this.bestScore;
+        document.getElementById('menu-best-score').textContent = this.bestScore;
+    }
+
+    showScreen(screenId) {
+        document.querySelectorAll('.screen').forEach(screen => {
+            screen.classList.remove('active');
+        });
+        document.getElementById(screenId)?.classList.add('active');
+    }
+
+    async showLeaderboard() {
+        this.showScreen('leaderboard-screen');
+
+        const listEl = document.getElementById('leaderboard-list');
+        listEl.innerHTML = '<div class="leaderboard-loading">Loading...</div>';
+
+        try {
+            const response = await fetch('/api/scores');
+            const data = await response.json();
+
+            if (data.leaderboard && data.leaderboard.length > 0) {
+                listEl.innerHTML = data.leaderboard.map((entry, i) => `
+                    <div class="leaderboard-item ${i < 3 ? 'top-' + (i + 1) : ''}">
+                        <span class="rank">${entry.rank}</span>
+                        <span class="name">${entry.name}</span>
+                        <span class="score">${entry.score}</span>
+                    </div>
+                `).join('');
+            } else {
+                listEl.innerHTML = '<div class="leaderboard-empty">No scores yet</div>';
+            }
+        } catch (e) {
+            listEl.innerHTML = '<div class="leaderboard-error">Failed to load</div>';
+        }
+    }
+
+    hideLeaderboard() {
+        this.showScreen('menu-screen');
+    }
+
+    showNicknameInput() {
+        this.showScreen('nickname-screen');
+        document.getElementById('nickname-input')?.focus();
+    }
+
+    hideNicknameInput() {
+        this.showScreen('menu-screen');
+    }
+
+    joinOnline() {
+        const nickname = document.getElementById('nickname-input')?.value.trim();
+        if (!nickname) {
+            document.getElementById('nickname-input')?.classList.add('error');
+            setTimeout(() => {
+                document.getElementById('nickname-input')?.classList.remove('error');
+            }, 500);
+            return;
         }
 
-        requestAnimationFrame((t) => this.gameLoop(t));
+        // TODO: Implement Socket.io connection
+        alert('Online mode coming soon!');
+        this.hideNicknameInput();
+    }
+
+    async submitScore() {
+        if (this.score === 0) return;
+
+        const nickname = localStorage.getItem('ringTossNickname') || 'Anonymous';
+
+        try {
+            await fetch('/api/scores', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: nickname, score: this.score })
+            });
+        } catch (e) {
+            console.log('Failed to submit score');
+        }
+    }
+
+    onResize() {
+        // Redraw elements on resize
+        this.drawGrid();
+        this.drawGround();
+        this.drawPole();
+        this.drawRing();
+        this.drawShadow();
     }
 }
 
-// ========================================
-// Initialize
-// ========================================
-window.addEventListener('DOMContentLoaded', () => {
-    new Game();
+// Initialize game when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    window.game = new RingTossGame();
 });

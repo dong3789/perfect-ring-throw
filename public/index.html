@@ -5,27 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Ring Toss</title>
     <link rel="stylesheet" href="css/style.css">
+    <script src="https://pixijs.download/v8.0.0/pixi.min.js"></script>
 </head>
 <body>
     <!-- 메인 메뉴 -->
     <div id="menu-screen" class="screen active">
+        <div class="menu-bg"></div>
         <div class="menu-container">
-            <h1 class="game-title">
-                <span class="title-ring">Ring</span>
-                <span class="title-toss">Toss</span>
-            </h1>
-            <div class="menu-deco">
-                <div class="floating-ring ring-1"></div>
-                <div class="floating-ring ring-2"></div>
-                <div class="floating-ring ring-3"></div>
+            <div class="logo">
+                <div class="logo-ring"></div>
+                <div class="logo-ring logo-ring-2"></div>
+                <div class="logo-ring logo-ring-3"></div>
             </div>
+            <h1 class="game-title">Ring Toss</h1>
+            <p class="game-subtitle">Perfect your throw</p>
             <div class="best-score-display">
-                Best <span id="menu-best-score">0</span>
+                <span class="best-label">Best Score</span>
+                <span class="best-value" id="menu-best-score">0</span>
             </div>
             <div class="menu-buttons">
-                <button class="btn btn-solo" id="btn-solo">Solo Play</button>
-                <button class="btn btn-online" id="btn-online">Online Play</button>
-                <button class="btn btn-leaderboard" id="btn-leaderboard">Leaderboard</button>
+                <button class="btn btn-primary" id="btn-solo">
+                    <span class="btn-text">Play Solo</span>
+                    <span class="btn-arrow">→</span>
+                </button>
+                <button class="btn btn-secondary" id="btn-online">
+                    <span class="btn-text">Play Online</span>
+                    <span class="btn-badge">LIVE</span>
+                </button>
+                <button class="btn btn-ghost" id="btn-leaderboard">Leaderboard</button>
             </div>
         </div>
     </div>
@@ -33,59 +40,72 @@
     <!-- 게임 화면 -->
     <div id="game-screen" class="screen">
         <div class="game-header">
-            <div class="score-container">
-                <div class="current-score">
-                    <span class="score-label">Score</span>
-                    <span class="score-value" id="current-score">0</span>
+            <div class="header-left">
+                <button class="btn-icon" id="btn-back">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="score-display">
+                <div class="score-current">
+                    <span class="score-number" id="current-score">0</span>
                 </div>
-                <div class="best-score">
-                    <span class="score-label">Best</span>
-                    <span class="score-value" id="best-score">0</span>
+                <div class="score-best">
+                    <span class="score-best-label">Best</span>
+                    <span class="score-best-number" id="best-score">0</span>
                 </div>
             </div>
+            <div class="header-right"></div>
         </div>
-        <canvas id="game-canvas"></canvas>
-        <div class="game-hint" id="game-hint">Drag to throw</div>
+        <div id="game-container"></div>
+        <div class="game-hint" id="game-hint">
+            <span class="hint-icon">↑</span>
+            <span class="hint-text">Swipe up to throw</span>
+        </div>
     </div>
 
     <!-- 게임 오버 화면 -->
     <div id="gameover-screen" class="screen overlay">
-        <div class="gameover-container">
-            <h2 class="gameover-title">Game Over</h2>
+        <div class="modal gameover-modal">
+            <div class="modal-glow"></div>
+            <h2 class="modal-title">Game Over</h2>
             <div class="final-score">
-                <span class="final-score-label">Your Score</span>
                 <span class="final-score-value" id="final-score">0</span>
+                <span class="final-score-label">rings landed</span>
             </div>
-            <div class="new-record" id="new-record" style="display: none;">
-                New Record!
+            <div class="new-record" id="new-record">
+                <span class="record-badge">NEW BEST</span>
             </div>
-            <div class="gameover-buttons">
-                <button class="btn btn-retry" id="btn-retry">Try Again</button>
-                <button class="btn btn-home" id="btn-home">Home</button>
+            <div class="modal-buttons">
+                <button class="btn btn-primary" id="btn-retry">
+                    <span class="btn-text">Play Again</span>
+                </button>
+                <button class="btn btn-ghost" id="btn-home">Back to Menu</button>
             </div>
         </div>
     </div>
 
     <!-- 온라인 닉네임 입력 -->
     <div id="nickname-screen" class="screen overlay">
-        <div class="nickname-container">
-            <h2 class="nickname-title">Enter your nickname</h2>
-            <input type="text" id="nickname-input" class="nickname-input" placeholder="Nickname" maxlength="12">
-            <div class="nickname-buttons">
-                <button class="btn btn-join" id="btn-join">Join</button>
-                <button class="btn btn-cancel" id="btn-cancel">Cancel</button>
+        <div class="modal nickname-modal">
+            <h2 class="modal-title">Enter Nickname</h2>
+            <input type="text" id="nickname-input" class="text-input" placeholder="Your name" maxlength="12" autocomplete="off">
+            <div class="modal-buttons">
+                <button class="btn btn-primary" id="btn-join">Join Game</button>
+                <button class="btn btn-ghost" id="btn-cancel">Cancel</button>
             </div>
         </div>
     </div>
 
     <!-- 리더보드 -->
     <div id="leaderboard-screen" class="screen overlay">
-        <div class="leaderboard-container">
-            <h2 class="leaderboard-title">Leaderboard</h2>
+        <div class="modal leaderboard-modal">
+            <h2 class="modal-title">Leaderboard</h2>
             <div class="leaderboard-list" id="leaderboard-list">
                 <div class="leaderboard-loading">Loading...</div>
             </div>
-            <button class="btn btn-close" id="btn-close-leaderboard">Close</button>
+            <button class="btn btn-ghost" id="btn-close-leaderboard">Close</button>
         </div>
     </div>
 
