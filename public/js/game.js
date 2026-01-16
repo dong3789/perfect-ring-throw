@@ -124,39 +124,78 @@ class RingTossGame {
         // Use the game container for events (more reliable on mobile)
         const container = this.gameContainer;
 
+        // Unified pointer handler
+        const getPointerPos = (e) => {
+            const rect = container.getBoundingClientRect();
+            const touch = e.touches ? e.touches[0] : e;
+            const clientX = touch ? touch.clientX : e.clientX;
+            const clientY = touch ? touch.clientY : e.clientY;
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        };
+
+        // Touch/Mouse start
+        const onStart = (e) => {
+            e.preventDefault();
+            if (!this.isPlaying || this.isThrowing || this.hasThrown) return;
+
+            const pos = getPointerPos(e);
+            this.dragStart = { ...pos, time: Date.now() };
+            this.dragCurrent = { ...pos };
+            this.isDragging = true;
+
+            const hint = document.getElementById('game-hint');
+            if (hint) hint.style.opacity = '0';
+        };
+
+        // Touch/Mouse move
+        const onMove = (e) => {
+            if (!this.isDragging) return;
+            e.preventDefault();
+
+            this.dragCurrent = getPointerPos(e);
+            const dx = this.dragCurrent.x - this.dragStart.x;
+            const dy = this.dragCurrent.y - this.dragStart.y;
+
+            this.ringState.x = dx * 0.5;
+            this.ringState.rotation = Math.max(-0.5, Math.min(0.5, -dy * 0.005));
+            this.drawRing();
+        };
+
+        // Touch/Mouse end
+        const onEnd = (e) => {
+            if (!this.isDragging) return;
+            e.preventDefault();
+
+            const dx = this.dragCurrent.x - this.dragStart.x;
+            const dy = this.dragCurrent.y - this.dragStart.y;
+            const dt = Math.max(50, Date.now() - this.dragStart.time);
+
+            this.isDragging = false;
+
+            // Swipe up to throw (dy is negative when swiping up)
+            if (dy < -20) {
+                this.throwRing(dx, dy, dt);
+            } else {
+                this.ringState.x = 0;
+                this.ringState.rotation = 0;
+                this.drawRing();
+            }
+        };
+
         // Touch events
-        container.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.touches.length > 0) {
-                this.onPointerDown(e.touches[0]);
-            }
-        }, { passive: false });
+        container.addEventListener('touchstart', onStart, { passive: false });
+        container.addEventListener('touchmove', onMove, { passive: false });
+        container.addEventListener('touchend', onEnd, { passive: false });
+        container.addEventListener('touchcancel', onEnd, { passive: false });
 
-        container.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.touches.length > 0) {
-                this.onPointerMove(e.touches[0]);
-            }
-        }, { passive: false });
-
-        container.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            this.onPointerUp();
-        }, { passive: false });
-
-        container.addEventListener('touchcancel', (e) => {
-            e.preventDefault();
-            this.onPointerUp();
-        }, { passive: false });
-
-        // Mouse events (for desktop testing)
-        container.addEventListener('mousedown', (e) => this.onPointerDown(e));
-        container.addEventListener('mousemove', (e) => this.onPointerMove(e));
-        container.addEventListener('mouseup', () => this.onPointerUp());
-        container.addEventListener('mouseleave', () => this.onPointerUp());
+        // Mouse events
+        container.addEventListener('mousedown', onStart);
+        container.addEventListener('mousemove', onMove);
+        container.addEventListener('mouseup', onEnd);
+        container.addEventListener('mouseleave', onEnd);
     }
 
     createBackground() {
