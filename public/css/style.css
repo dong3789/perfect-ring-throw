@@ -95,10 +95,33 @@ body {
     position: absolute;
     inset: 0;
     background:
-        radial-gradient(ellipse at 50% 0%, rgba(168, 85, 247, 0.15) 0%, transparent 50%),
-        radial-gradient(ellipse at 80% 80%, rgba(124, 58, 237, 0.1) 0%, transparent 40%),
-        radial-gradient(ellipse at 20% 60%, rgba(192, 132, 252, 0.08) 0%, transparent 40%);
+        radial-gradient(ellipse at 50% 0%, rgba(168, 85, 247, 0.2) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(124, 58, 237, 0.15) 0%, transparent 40%),
+        radial-gradient(ellipse at 20% 60%, rgba(192, 132, 252, 0.1) 0%, transparent 40%);
     pointer-events: none;
+    animation: bg-pulse 4s ease-in-out infinite;
+}
+
+@keyframes bg-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.menu-bg::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(168, 85, 247, 0.1) 0%, transparent 70%);
+    transform: translate(-50%, -50%);
+    animation: glow-rotate 10s linear infinite;
+}
+
+@keyframes glow-rotate {
+    from { transform: translate(-50%, -50%) rotate(0deg); }
+    to { transform: translate(-50%, -50%) rotate(360deg); }
 }
 
 .menu-container {
@@ -123,26 +146,36 @@ body {
     inset: 0;
     border: 4px solid var(--accent);
     border-radius: 50%;
-    animation: logo-pulse 3s ease-in-out infinite;
+    animation: logo-pulse 3s ease-in-out infinite, logo-glow 2s ease-in-out infinite;
+    box-shadow: 0 0 20px var(--accent-glow), inset 0 0 20px var(--accent-glow);
 }
 
 .logo-ring-2 {
     inset: 15px;
     border-color: var(--accent-light);
     animation-delay: 0.2s;
-    opacity: 0.7;
+    opacity: 0.8;
+    box-shadow: 0 0 15px rgba(192, 132, 252, 0.4), inset 0 0 15px rgba(192, 132, 252, 0.3);
 }
 
 .logo-ring-3 {
     inset: 30px;
     border-color: var(--accent-dark);
     animation-delay: 0.4s;
-    opacity: 0.5;
+    opacity: 0.6;
+    box-shadow: 0 0 10px rgba(124, 58, 237, 0.4), inset 0 0 10px rgba(124, 58, 237, 0.3);
 }
 
 @keyframes logo-pulse {
-    0%, 100% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.05); opacity: 0.8; }
+    0%, 100% { transform: scale(1) rotate(0deg); }
+    25% { transform: scale(1.02) rotate(2deg); }
+    50% { transform: scale(1.05) rotate(0deg); }
+    75% { transform: scale(1.02) rotate(-2deg); }
+}
+
+@keyframes logo-glow {
+    0%, 100% { box-shadow: 0 0 20px var(--accent-glow), inset 0 0 20px var(--accent-glow); }
+    50% { box-shadow: 0 0 40px var(--accent-glow), inset 0 0 30px var(--accent-glow); }
 }
 
 .game-title {
@@ -233,11 +266,34 @@ body {
 .btn-primary {
     background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
     color: white;
-    box-shadow: 0 4px 24px rgba(168, 85, 247, 0.4);
+    box-shadow: 0 4px 24px rgba(168, 85, 247, 0.4), 0 0 40px rgba(168, 85, 247, 0.2);
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-primary::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: linear-gradient(
+        45deg,
+        transparent 30%,
+        rgba(255, 255, 255, 0.1) 50%,
+        transparent 70%
+    );
+    animation: btn-shine 3s ease-in-out infinite;
+}
+
+@keyframes btn-shine {
+    0% { transform: translateX(-100%) rotate(45deg); }
+    100% { transform: translateX(100%) rotate(45deg); }
 }
 
 .btn-primary:hover {
-    box-shadow: 0 8px 32px rgba(168, 85, 247, 0.5);
+    box-shadow: 0 8px 32px rgba(168, 85, 247, 0.6), 0 0 60px rgba(168, 85, 247, 0.3);
     transform: translateY(-2px);
 }
 
@@ -346,6 +402,32 @@ body {
     font-weight: 800;
     letter-spacing: -0.03em;
     line-height: 1;
+    transition: transform 0.1s ease-out;
+    text-shadow: 0 0 20px var(--accent-glow);
+}
+
+.combo-display {
+    height: 24px;
+    margin-top: 4px;
+}
+
+.combo-text {
+    font-size: 0.875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    background: linear-gradient(135deg, #f59e0b 0%, #f97316 50%, #ef4444 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: combo-pulse 0.5s ease-out;
+    text-shadow: 0 0 30px rgba(245, 158, 11, 0.5);
+}
+
+@keyframes combo-pulse {
+    0% { transform: scale(1.5); opacity: 0; }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); opacity: 1; }
 }
 
 .score-best {
@@ -495,10 +577,18 @@ body {
     font-weight: 800;
     letter-spacing: -0.04em;
     line-height: 1;
-    background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 100%);
+    background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-light) 50%, var(--accent) 100%);
+    background-size: 200% 200%;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    animation: score-gradient 2s ease-in-out infinite;
+    filter: drop-shadow(0 0 30px var(--accent-glow));
+}
+
+@keyframes score-gradient {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
 }
 
 .final-score-label {
